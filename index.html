@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Louvor Videira — Repertórios da equipe de louvor</title>
+    <meta
+      name="description"
+      content="Gerencie repertórios, músicas, tonalidades, cifras, vídeos, escalas e ensaios da equipe de louvor. Tudo o que você precisa antes do culto, direto no celular."
+    />
+    <meta name="keywords" content="louvor, repertório, cifras, tonalidade, escala, ensaio, igreja, equipe de louvor" />
+    <meta name="application-name" content="Louvor Videira" />
+    <meta name="apple-mobile-web-app-title" content="Louvor Videira" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="color-scheme" content="light dark" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="pt_BR" />
+    <meta property="og:site_name" content="Louvor Videira" />
+    <meta property="og:title" content="Louvor Videira — Repertórios da equipe de louvor" />
+    <meta
+      property="og:description"
+      content="O que vamos tocar hoje? Qual o tom? Qual vídeo estudar? Repertórios, escalas e cifras da equipe em um só lugar."
+    />
+    <meta name="twitter:card" content="summary" />
+
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- Aplica o tema antes da renderização para evitar "flash" -->
+    <script>
+      ;(function () {
+        try {
+          var pref = localStorage.getItem('louvor-videira:theme') || 'system'
+          var dark = pref === 'dark' || (pref === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+          if (dark) document.documentElement.classList.add('dark')
+          document.documentElement.style.colorScheme = dark ? 'dark' : 'light'
+          var meta = document.querySelector('meta[name="theme-color"]')
+          if (meta) meta.setAttribute('content', dark ? '#0b0b10' : '#ffffff')
+        } catch (e) {}
+      })()
+    </script>
+  </head>
+  <body>
+    <noscript>Ative o JavaScript para usar o Louvor Videira.</noscript>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

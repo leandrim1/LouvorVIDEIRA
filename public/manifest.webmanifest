@@ -1,0 +1,12 @@
+{
+  "name": "Louvor Videira",
+  "short_name": "Louvor",
+  "description": "Repertórios, músicas, escalas e ensaios da equipe de louvor.",
+  "lang": "pt-BR",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0b0b10",
+  "theme_color": "#6d28d9",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}
