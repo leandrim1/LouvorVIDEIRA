@@ -23,7 +23,8 @@ export function SongPlayer({ url, title, type, className, autoLoad }: SongPlayer
   const [loaded, setLoaded] = useState(Boolean(autoLoad))
   const label = title || (type ? VIDEO_TYPE_LABELS[type] : 'Vídeo')
 
-  if (video.provider === 'other') {
+  // Onde players externos não podem ser incorporados (ex.: Artifact), mostra o link
+  if (video.provider === 'other' || import.meta.env.VITE_EMBED_VIDEOS === 'false') {
     return (
       <a
         href={video.watchUrl}

@@ -1,12 +1,15 @@
 import type { ComponentType } from 'react'
-import { createBrowserRouter } from 'react-router-dom'
+import { createBrowserRouter, createMemoryRouter } from 'react-router-dom'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { RouteError } from './RouteError'
 
 /** Carrega a página sob demanda (code splitting por rota) */
 const page = (loader: () => Promise<{ default: ComponentType }>) => async () => ({ Component: (await loader()).default })
 
-export const router = createBrowserRouter([
+/** Hospedagem em iframe (Artifact) usa roteador em memória; o padrão é o histórico do navegador */
+const createRouter = import.meta.env.VITE_ROUTER === 'memory' ? createMemoryRouter : createBrowserRouter
+
+export const router = createRouter([
   {
     path: '/',
     element: <AppLayout />,

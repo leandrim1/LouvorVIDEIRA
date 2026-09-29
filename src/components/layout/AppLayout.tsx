@@ -1,5 +1,5 @@
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
-import { Outlet, ScrollRestoration } from 'react-router-dom'
+import { Outlet, ScrollRestoration, useLocation } from 'react-router-dom'
 import { CommandPaletteContext } from '@/contexts/commandPalette'
 import { useNotifications } from '@/hooks/useData'
 import { CommandPalette } from '@/components/search/CommandPalette'
@@ -57,8 +57,16 @@ export function AppLayout() {
         </div>
         <BottomNav unread={unread} />
         <CommandPalette open={searchOpen} onClose={close} />
-        <ScrollRestoration />
+        {import.meta.env.VITE_ROUTER === 'memory' ? <ScrollToTop /> : <ScrollRestoration />}
       </div>
     </CommandPaletteContext.Provider>
   )
+}
+
+function ScrollToTop() {
+  const { pathname } = useLocation()
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [pathname])
+  return null
 }
