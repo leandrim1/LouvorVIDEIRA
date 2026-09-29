@@ -32,7 +32,7 @@ function ToolButton({ label, onClick, children, active, disabled }: { label: str
       aria-pressed={active}
       className={cn(
         'flex size-10 items-center justify-center rounded-xl transition-colors disabled:opacity-40 [&_svg]:size-[18px]',
-        active ? 'bg-brand-600 text-white dark:bg-brand-500' : 'text-ink-2 hover:bg-surface-2 hover:text-ink',
+        active ? 'bg-brand-600 text-white dark:bg-brand-600' : 'text-ink-2 hover:bg-surface-2 hover:text-ink',
       )}
     >
       {children}
@@ -161,7 +161,7 @@ export function ReaderFrame({ title, subtitle, storageKey, defaultFontSize, cont
               <button
                 type="button"
                 onClick={() => setScrolling(true)}
-                className="pb-safe fixed right-5 bottom-5 flex size-14 items-center justify-center rounded-full bg-brand-600 text-white shadow-xl transition-transform active:scale-95 dark:bg-brand-500"
+                className="pb-safe fixed right-5 bottom-5 flex size-14 items-center justify-center rounded-full bg-brand-600 text-white shadow-xl transition-transform active:scale-95 dark:bg-brand-600"
                 aria-label="Iniciar rolagem automática"
               >
                 <Play className="ml-0.5 size-6 fill-current" />

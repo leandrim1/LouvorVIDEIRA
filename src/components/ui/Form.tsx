@@ -147,7 +147,7 @@ export function Checkbox({ label, description, className, id, checked, ...props 
     <label htmlFor={inputId} className={cn('group flex cursor-pointer items-start gap-3 select-none', className)}>
       <span className="relative mt-0.5 flex size-5 shrink-0 items-center justify-center">
         <input id={inputId} type="checkbox" checked={checked} className="peer sr-only" {...props} />
-        <span className="absolute inset-0 rounded-md bg-surface ring-1 ring-line-strong ring-inset transition-colors peer-checked:bg-brand-600 peer-checked:ring-brand-600 peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-brand-500 dark:peer-checked:bg-brand-500 dark:peer-checked:ring-brand-500" />
+        <span className="absolute inset-0 rounded-md bg-surface ring-1 ring-line-strong ring-inset transition-colors peer-checked:bg-brand-600 peer-checked:ring-brand-600 peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-brand-500 dark:peer-checked:bg-brand-600 dark:peer-checked:ring-brand-600" />
         <Check className="relative size-3.5 text-white opacity-0 transition-opacity peer-checked:opacity-100" strokeWidth={3} aria-hidden />
       </span>
       <span className="min-w-0">
@@ -185,7 +185,7 @@ export function Switch({ checked, onChange, label, description, disabled }: Swit
         onClick={() => onChange(!checked)}
         className={cn(
           'relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50',
-          checked ? 'bg-brand-600 dark:bg-brand-500' : 'bg-surface-3',
+          checked ? 'bg-brand-600 dark:bg-brand-600' : 'bg-surface-3',
         )}
       >
         <span

@@ -3,15 +3,15 @@ import { Music2 } from 'lucide-react'
 import { cn, hashString } from '@/lib/utils'
 
 const GRADIENTS = [
-  'from-violet-500 to-indigo-700',
-  'from-fuchsia-500 to-purple-700',
-  'from-sky-500 to-indigo-600',
-  'from-emerald-500 to-teal-700',
-  'from-amber-400 to-orange-600',
-  'from-rose-500 to-pink-700',
-  'from-indigo-500 to-slate-800',
-  'from-teal-400 to-cyan-700',
-  'from-purple-500 to-rose-600',
+  'from-leaf-500 to-brand-600',
+  'from-brand-400 to-grape-600',
+  'from-leaf-400 to-leaf-700',
+  'from-brand-500 to-brand-800',
+  'from-teal-400 to-brand-600',
+  'from-grape-400 to-grape-700',
+  'from-sky-400 to-brand-600',
+  'from-leaf-600 to-grape-600',
+  'from-amber-400 to-rose-500',
 ]
 
 const SIZES = {

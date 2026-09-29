@@ -306,7 +306,7 @@ export default function RepertoireDetailPage() {
                 <ul className="space-y-2">
                   {repertoire.rehearsals.map((r) => (
                     <li key={r.id} className="flex items-center gap-3 rounded-xl bg-surface-2 p-3">
-                      <CalendarClock className="size-5 shrink-0 text-sky-500" aria-hidden />
+                      <CalendarClock className="size-5 shrink-0 text-leaf-500" aria-hidden />
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-ink">
                           {r.event.title} · {formatDayMonth(r.event.date)}

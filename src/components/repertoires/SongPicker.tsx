@@ -55,7 +55,7 @@ export function SongPicker({ songs, selectedIds, onAdd, usage }: SongPickerProps
                     className={
                       added
                         ? 'flex size-8 items-center justify-center rounded-lg text-emerald-600 dark:text-emerald-400'
-                        : 'flex size-8 items-center justify-center rounded-lg bg-brand-600 text-white dark:bg-brand-500'
+                        : 'flex size-8 items-center justify-center rounded-lg bg-brand-600 text-white dark:bg-brand-600'
                     }
                     aria-hidden
                   >

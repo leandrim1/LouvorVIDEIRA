@@ -9,9 +9,9 @@ import type { NotificationView } from '@/services/notificationService'
 const ICONS: Record<NotificationType, { icon: ReactNode; className: string }> = {
   repertoire: { icon: <ListMusic />, className: 'bg-brand-50 text-brand-600 dark:bg-brand-500/10 dark:text-brand-300' },
   key_change: { icon: <KeyRound />, className: 'bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-300' },
-  rehearsal: { icon: <CalendarClock />, className: 'bg-sky-50 text-sky-600 dark:bg-sky-500/10 dark:text-sky-300' },
+  rehearsal: { icon: <CalendarClock />, className: 'bg-leaf-50 text-leaf-600 dark:bg-leaf-500/10 dark:text-leaf-300' },
   schedule: { icon: <UserCheck />, className: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300' },
-  song: { icon: <Music2 />, className: 'bg-fuchsia-50 text-fuchsia-600 dark:bg-fuchsia-500/10 dark:text-fuchsia-300' },
+  song: { icon: <Music2 />, className: 'bg-indigo-50 text-grape-500 dark:bg-grape-500/15 dark:text-grape-400' },
   system: { icon: <Info />, className: 'bg-surface-2 text-ink-2' },
 }
 

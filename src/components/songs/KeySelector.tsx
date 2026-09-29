@@ -37,7 +37,7 @@ export function KeySelector({
         <output
           aria-live="polite"
           className={cn(
-            'flex items-center justify-center rounded-xl bg-brand-600/[0.08] font-mono font-bold text-brand-700 ring-1 ring-brand-600/15 ring-inset dark:bg-amber-400/10 dark:text-amber-300 dark:ring-amber-300/20',
+            'flex items-center justify-center rounded-xl bg-brand-600/[0.08] font-mono font-bold text-brand-700 ring-1 ring-brand-600/15 ring-inset dark:bg-leaf-400/10 dark:text-leaf-300 dark:ring-leaf-300/20',
             size === 'lg' ? 'h-12 min-w-20 px-3 text-2xl' : 'h-10 min-w-16 px-2.5 text-lg',
           )}
         >

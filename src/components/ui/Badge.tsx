@@ -50,7 +50,7 @@ export function KeyBadge({ value, size = 'md', label = true, className }: KeyBad
   return (
     <span
       className={cn(
-        'inline-flex shrink-0 items-center rounded-lg bg-brand-600/[0.08] font-semibold whitespace-nowrap text-brand-700 ring-1 ring-inset ring-brand-600/15 dark:bg-amber-400/10 dark:text-amber-300 dark:ring-amber-300/20',
+        'inline-flex shrink-0 items-center rounded-lg bg-brand-600/[0.08] font-semibold whitespace-nowrap text-brand-700 ring-1 ring-inset ring-brand-600/15 dark:bg-leaf-400/10 dark:text-leaf-300 dark:ring-leaf-300/20',
         sizes[size],
         className,
       )}

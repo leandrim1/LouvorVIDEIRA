@@ -24,7 +24,7 @@ export function RehearsalCard({ rehearsal, onEdit, onDelete }: RehearsalCardProp
         <DateBlock date={event.date} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-[11px] font-bold tracking-wider text-sky-600 uppercase dark:text-sky-300">Ensaio</p>
+            <p className="text-[11px] font-bold tracking-wider text-leaf-600 uppercase dark:text-leaf-300">Ensaio</p>
             {!past && (relative === 'Hoje' || relative === 'Amanhã') && <Badge tone="info">{relative}</Badge>}
             {past && <Badge>Realizado</Badge>}
           </div>

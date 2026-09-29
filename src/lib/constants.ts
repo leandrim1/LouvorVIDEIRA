@@ -73,9 +73,9 @@ export const EVENT_TYPE_STYLES: Record<EventType, { dot: string; badge: string; 
     bar: 'border-l-brand-500',
   },
   rehearsal: {
-    dot: 'bg-sky-500',
-    badge: 'bg-sky-50 text-sky-700 ring-sky-600/15 dark:bg-sky-500/10 dark:text-sky-300 dark:ring-sky-400/20',
-    bar: 'border-l-sky-500',
+    dot: 'bg-leaf-500',
+    badge: 'bg-leaf-50 text-leaf-700 ring-leaf-600/20 dark:bg-leaf-500/10 dark:text-leaf-300 dark:ring-leaf-400/20',
+    bar: 'border-l-leaf-500',
   },
   special: {
     dot: 'bg-amber-500',
@@ -83,14 +83,14 @@ export const EVENT_TYPE_STYLES: Record<EventType, { dot: string; badge: string; 
     bar: 'border-l-amber-500',
   },
   conference: {
-    dot: 'bg-emerald-500',
-    badge: 'bg-emerald-50 text-emerald-700 ring-emerald-600/15 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-400/20',
-    bar: 'border-l-emerald-500',
+    dot: 'bg-teal-500',
+    badge: 'bg-teal-50 text-teal-700 ring-teal-600/15 dark:bg-teal-500/10 dark:text-teal-300 dark:ring-teal-400/20',
+    bar: 'border-l-teal-500',
   },
   vigil: {
-    dot: 'bg-indigo-500',
-    badge: 'bg-indigo-50 text-indigo-700 ring-indigo-600/15 dark:bg-indigo-500/10 dark:text-indigo-300 dark:ring-indigo-400/20',
-    bar: 'border-l-indigo-500',
+    dot: 'bg-grape-500',
+    badge: 'bg-indigo-50 text-grape-600 ring-grape-500/20 dark:bg-grape-500/15 dark:text-grape-400 dark:ring-grape-400/25',
+    bar: 'border-l-grape-500',
   },
   communion: {
     dot: 'bg-rose-500',

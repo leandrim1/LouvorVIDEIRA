@@ -172,7 +172,7 @@ function MonthView({ cursor, byDate, today, selectedDate, onSelectDate, onOpenEv
                   aria-label={`${formatDateWithWeekday(iso)}${dayEvents.length ? `, ${dayEvents.length} evento(s)` : ''}`}
                   className={cn(
                     'tabular mx-auto flex size-7 items-center justify-center rounded-full text-[13px] font-semibold sm:mx-0',
-                    isTodayCell ? 'bg-brand-600 text-white dark:bg-brand-500' : inMonth ? 'text-ink' : 'text-ink-3',
+                    isTodayCell ? 'bg-brand-600 text-white dark:bg-brand-600' : inMonth ? 'text-ink' : 'text-ink-3',
                     isSelected && !isTodayCell && 'ring-2 ring-brand-500',
                   )}
                 >

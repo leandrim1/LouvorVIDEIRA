@@ -137,7 +137,7 @@ export function MemberForm({ open, onClose, member }: MemberFormProps) {
                   className={cn(
                     'h-9 rounded-full px-3.5 text-[13px] font-semibold ring-1 transition-colors ring-inset',
                     active
-                      ? 'bg-brand-600 text-white ring-brand-600 dark:bg-brand-500 dark:ring-brand-500'
+                      ? 'bg-brand-600 text-white ring-brand-600 dark:bg-brand-600 dark:ring-brand-500'
                       : 'bg-surface text-ink-2 ring-line hover:bg-surface-2 hover:text-ink',
                   )}
                 >

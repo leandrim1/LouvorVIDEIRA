@@ -126,7 +126,7 @@ function NextServiceHero({ event, repertoire }: { event: EventDetail; repertoire
   return (
     <section
       aria-labelledby="next-service-title"
-      className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-brand-600 via-brand-800 to-brand-950 p-5 text-white shadow-xl shadow-brand-900/20 sm:p-7"
+      className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-leaf-700 via-brand-700 to-grape-800 p-5 text-white shadow-xl shadow-brand-900/20 sm:p-7"
     >
       <div className="pointer-events-none absolute -top-24 -right-16 size-72 rounded-full bg-white/10 blur-3xl" aria-hidden />
       <SoundWave />
@@ -332,7 +332,7 @@ function NextRehearsalCard({ event }: { event: EventDetail | null }) {
         ) : (
           <div className="space-y-3">
             <div className="flex items-center gap-3">
-              <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-sky-50 text-sky-600 dark:bg-sky-500/10 dark:text-sky-300">
+              <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-leaf-50 text-leaf-600 dark:bg-leaf-500/10 dark:text-leaf-300">
                 <CalendarClock className="size-5" aria-hidden />
               </span>
               <div className="min-w-0">

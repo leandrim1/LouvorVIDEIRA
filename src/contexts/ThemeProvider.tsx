@@ -22,7 +22,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     root.classList.toggle('dark', resolvedTheme === 'dark')
     root.style.colorScheme = resolvedTheme
     const meta = document.querySelector('meta[name="theme-color"]:not([media])')
-    meta?.setAttribute('content', resolvedTheme === 'dark' ? '#0b0b10' : '#ffffff')
+    meta?.setAttribute('content', resolvedTheme === 'dark' ? '#080b10' : '#ffffff')
   }, [resolvedTheme])
 
   const setTheme = useCallback((next: ThemePreference) => {

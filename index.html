@@ -26,9 +26,10 @@
       content="O que vamos tocar hoje? Qual o tom? Qual vídeo estudar? Repertórios, escalas e cifras da equipe em um só lugar."
     />
     <meta name="twitter:card" content="summary" />
+    <meta property="og:image" content="/icon-512.png" />
 
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -47,7 +48,7 @@
           if (dark) document.documentElement.classList.add('dark')
           document.documentElement.style.colorScheme = dark ? 'dark' : 'light'
           var meta = document.querySelector('meta[name="theme-color"]')
-          if (meta) meta.setAttribute('content', dark ? '#0b0b10' : '#ffffff')
+          if (meta) meta.setAttribute('content', dark ? '#080b10' : '#ffffff')
         } catch (e) {}
       })()
     </script>

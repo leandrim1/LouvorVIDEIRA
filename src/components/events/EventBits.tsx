@@ -10,7 +10,7 @@ export function DateBlock({ date, size = 'md', className }: { date: string; size
     <div
       className={cn(
         'flex shrink-0 flex-col items-center justify-center rounded-xl text-center ring-1 ring-inset',
-        today ? 'bg-brand-600 text-white ring-brand-600 dark:bg-brand-500' : 'bg-surface-2 text-ink ring-line',
+        today ? 'bg-brand-600 text-white ring-brand-600 dark:bg-brand-600' : 'bg-surface-2 text-ink ring-line',
         size === 'sm' && 'size-11',
         size === 'md' && 'size-14',
         size === 'lg' && 'size-[72px]',

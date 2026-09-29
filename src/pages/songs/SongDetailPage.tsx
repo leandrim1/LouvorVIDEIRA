@@ -487,7 +487,7 @@ function QuickAction({
   const classes = cn(
     'flex min-w-24 shrink-0 flex-col items-center justify-center gap-1.5 rounded-2xl px-3 py-3 text-xs font-semibold transition-all active:scale-[0.97] [&_svg]:size-5',
     primary
-      ? 'bg-brand-600 text-white shadow-sm hover:bg-brand-700 dark:bg-brand-500 dark:hover:bg-brand-400'
+      ? 'bg-brand-600 text-white shadow-sm hover:bg-brand-700 dark:bg-brand-600 dark:hover:bg-brand-500'
       : 'bg-surface-2 text-ink ring-1 ring-line ring-inset hover:bg-surface-3',
     disabled && 'pointer-events-none opacity-40',
   )

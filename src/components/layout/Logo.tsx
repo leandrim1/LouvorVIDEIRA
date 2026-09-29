@@ -1,25 +1,9 @@
-import { useId } from 'react'
+import logoUrl from '@/assets/logo.png'
 import { Link } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 
 export function LogoMark({ className }: { className?: string }) {
-  const gradientId = useId()
-  return (
-    <svg viewBox="0 0 64 64" className={cn('size-9 shrink-0', className)} aria-hidden>
-      <defs>
-        <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#8b5cf6" />
-          <stop offset="1" stopColor="#5b21b6" />
-        </linearGradient>
-      </defs>
-      <rect width="64" height="64" rx="16" fill={`url(#${gradientId})`} />
-      <g fill="#fff">
-        <circle cx="26" cy="44" r="7" />
-        <rect x="31" y="14" width="4" height="31" rx="2" />
-        <path d="M33 14c6 0 12 3 14 10-4-3-8-4-14-4z" />
-      </g>
-    </svg>
-  )
+  return <img src={logoUrl} alt="" width={36} height={36} className={cn('size-9 shrink-0 rounded-full', className)} aria-hidden />
 }
 
 export function Logo({ compact }: { compact?: boolean }) {

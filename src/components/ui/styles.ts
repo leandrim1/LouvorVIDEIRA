@@ -8,7 +8,7 @@ const base =
 
 const variants: Record<ButtonVariant, string> = {
   primary:
-    'bg-brand-600 text-white shadow-sm shadow-brand-900/15 hover:bg-brand-700 dark:bg-brand-500 dark:hover:bg-brand-400',
+    'bg-brand-600 text-white shadow-sm shadow-brand-900/15 hover:bg-brand-700 dark:bg-brand-600 dark:hover:bg-brand-500',
   secondary: 'bg-surface text-ink shadow-xs ring-1 ring-inset ring-line hover:bg-surface-2 hover:ring-line-strong',
   ghost: 'text-ink-2 hover:bg-surface-2 hover:text-ink',
   subtle: 'bg-surface-2 text-ink hover:bg-surface-3',

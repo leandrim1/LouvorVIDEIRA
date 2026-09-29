@@ -146,7 +146,7 @@ function SortableSongRow({ item, index, total, song, vocalists, onUpdate, onMove
           <button type="button" className={smallBtn} onClick={() => onUpdate({ key: transposeKey(item.key, -1) })} aria-label="Baixar meio tom">
             <Minus />
           </button>
-          <span className="w-9 text-center font-mono text-sm font-bold text-brand-700 dark:text-amber-300" aria-live="polite">
+          <span className="w-9 text-center font-mono text-sm font-bold text-brand-700 dark:text-leaf-300" aria-live="polite">
             {item.key}
           </span>
           <button type="button" className={smallBtn} onClick={() => onUpdate({ key: transposeKey(item.key, 1) })} aria-label="Subir meio tom">
