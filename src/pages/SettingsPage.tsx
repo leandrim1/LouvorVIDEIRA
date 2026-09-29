@@ -13,7 +13,7 @@ import { useMutation } from '@/hooks/useMutation'
 import { clearQueryCache } from '@/hooks/useQuery'
 import { USER_ROLE_DESCRIPTIONS, USER_ROLE_LABELS } from '@/lib/constants'
 import { cn, downloadJson } from '@/lib/utils'
-import { db, isSupabaseConfigured } from '@/services'
+import { db, isServerMode } from '@/services'
 import { Avatar, Badge, Button, Card, CardBody, CardHeader, PageHeader } from '@/components/ui'
 
 const THEMES: Array<{ value: ThemePreference; label: string; icon: ReactNode; description: string }> = [
@@ -26,7 +26,7 @@ export default function SettingsPage() {
   useDocumentTitle('Configurações')
   const { theme, setTheme } = useTheme()
   const { mode } = useAuth()
-  const { user, switchUser } = useSession()
+  const { user, switchUser, can } = useSession()
   const { data: users = [] } = useUsers()
   const confirm = useConfirm()
   const { hash } = useLocation()
@@ -101,7 +101,7 @@ export default function SettingsPage() {
           </CardBody>
         </Card>
 
-        {mode === 'supabase' ? (
+        {mode === 'server' ? (
           <AccountCard id="perfil" className="scroll-mt-24 lg:col-span-2" />
         ) : (
         <Card id="perfil" className="scroll-mt-24 lg:col-span-2">
@@ -133,18 +133,20 @@ export default function SettingsPage() {
         )}
 
         <Card className="lg:col-span-2">
-          <CardHeader title="Dados" description={isSupabaseConfigured ? 'Conectado ao Supabase' : 'Armazenados localmente neste navegador'} icon={<Database />} />
+          <CardHeader title="Dados" description={isServerMode ? 'Banco de dados PostgreSQL na nuvem' : 'Armazenados localmente neste navegador'} icon={<Database />} />
           <CardBody className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <p className="max-w-xl text-sm text-ink-2">
-              {isSupabaseConfigured
+              {isServerMode
                 ? 'Os dados da equipe ficam no banco de dados na nuvem e são compartilhados com todos os integrantes aprovados.'
-                : 'O modo local usa dados de demonstração salvos no navegador. Configure VITE_DATA_PROVIDER=supabase para usar um banco real.'}
+                : 'O modo de demonstração usa dados fictícios salvos no navegador. Publique com o banco de dados (Neon) para usar dados reais.'}
             </p>
             <div className="flex flex-wrap gap-2">
-              <Button variant="secondary" leftIcon={<Download />} onClick={() => void exportData.mutate()} loading={exportData.isPending}>
-                Exportar backup
-              </Button>
-              {!isSupabaseConfigured && (
+              {(!isServerMode || can('admin:access')) && (
+                <Button variant="secondary" leftIcon={<Download />} onClick={() => void exportData.mutate()} loading={exportData.isPending}>
+                  Exportar backup
+                </Button>
+              )}
+              {!isServerMode && (
               <Button
                 variant="danger-ghost"
                 leftIcon={<RotateCcw />}

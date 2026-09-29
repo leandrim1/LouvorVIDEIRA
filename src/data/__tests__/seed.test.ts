@@ -45,7 +45,7 @@ describe('dados de demonstração', () => {
     expect(db.repertoires.some((r) => r.eventId === next!.id)).toBe(true)
   })
 
-  it('usa ids no formato UUID (compatível com Supabase)', () => {
+  it('usa ids no formato UUID (compatível com o PostgreSQL)', () => {
     const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-8[0-9a-f]{3}-[0-9a-f]{12}$/
     for (const table of Object.values(db)) for (const row of table as Array<{ id: string }>) expect(row.id).toMatch(uuid)
   })

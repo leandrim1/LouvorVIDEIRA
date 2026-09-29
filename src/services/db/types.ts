@@ -27,11 +27,11 @@ export const TABLES: TableName[] = [
 
 /**
  * Contrato de acesso a dados. Implementado por:
- *  - LocalProvider: localStorage (modo demonstração / offline)
- *  - SupabaseProvider: Postgres via supabase-js
+ *  - ApiProvider: API do servidor (Vercel Functions + Drizzle + Neon PostgreSQL)
+ *  - LocalProvider: localStorage (modo demonstração)
  */
 export interface DataProvider {
-  readonly name: 'local' | 'supabase'
+  readonly name: 'local' | 'api'
   list<T extends TableName>(table: T, filter?: Filter<T>): Promise<Row<T>[]>
   get<T extends TableName>(table: T, id: string): Promise<Row<T> | null>
   insert<T extends TableName>(table: T, row: Row<T>): Promise<Row<T>>

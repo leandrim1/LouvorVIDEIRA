@@ -10,9 +10,9 @@ import { useForm } from '@/hooks/useForm'
 import { useMutation } from '@/hooks/useMutation'
 import { LINK_TYPE_LABELS, TIME_SIGNATURES, TUNING_OPTIONS, VIDEO_TYPE_LABELS } from '@/lib/constants'
 import { isValidKey, keyOptions, lyricsFromSheet, parseChordSheet } from '@/lib/music'
-import { cn, isValidUrl, readImageAsDataUrl } from '@/lib/utils'
+import { cn, isValidUrl } from '@/lib/utils'
 import { detectLinkType, parseVideoUrl } from '@/lib/video'
-import { songService } from '@/services'
+import { fileService, songService } from '@/services'
 import type { SongInput, SongLinkType, SongVideoType, SongWithRelations } from '@/types'
 import {
   BackLink,
@@ -145,7 +145,7 @@ function SongForm({ song }: { song: SongWithRelations | null }) {
   const onCover = async (file: File | undefined) => {
     if (!file) return
     try {
-      set('coverUrl', await readImageAsDataUrl(file, 480))
+      set('coverUrl', await fileService.uploadImage(file, { kind: 'cover', maxSize: 480, songId: song?.id }))
     } catch (err) {
       toast.error('Imagem inválida', err instanceof Error ? err.message : undefined)
     }

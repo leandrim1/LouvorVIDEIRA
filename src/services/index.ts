@@ -1,6 +1,7 @@
-export { db, isSupabaseConfigured } from './db'
+export { db, isServerMode } from './db'
 export { dashboardService } from './dashboardService'
 export { eventService } from './eventService'
+export { fileService } from './fileService'
 export { favoriteService, historyService, noteService } from './libraryService'
 export { memberService, userService } from './memberService'
 export { notificationService } from './notificationService'

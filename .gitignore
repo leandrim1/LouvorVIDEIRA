@@ -23,8 +23,15 @@ dist-ssr
 *.sln
 *.sw?
 
-# Variáveis de ambiente
+# Variáveis de ambiente (nunca versionar credenciais)
 .env
+.env.local
+.env.production
+.env.development
 .env.*
 !.env.example
+.vercel
 dist-artifact
+
+# Banco PostgreSQL local de desenvolvimento (PGlite)
+.pglite

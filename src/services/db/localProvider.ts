@@ -21,7 +21,7 @@ function load(): DatabaseState {
       // Migração: bancos locais antigos não tinham aprovação de usuários
       for (const user of parsed.users ?? []) {
         user.approved ??= true
-        user.authUserId ??= null
+        user.registered ??= true
       }
       return parsed as DatabaseState
     }

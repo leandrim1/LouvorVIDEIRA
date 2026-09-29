@@ -2,11 +2,11 @@ import { useEffect, useRef } from 'react'
 import { ImagePlus, Trash2 } from 'lucide-react'
 import { MEMBER_ROLES, MEMBER_ROLE_LABELS, VOICE_LABELS } from '@/lib/constants'
 import { email, minLength, required, url } from '@/lib/validation'
-import { cn, readImageAsDataUrl } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 import { useForm } from '@/hooks/useForm'
 import { useMutation } from '@/hooks/useMutation'
 import { useToast } from '@/contexts/toast'
-import { memberService } from '@/services'
+import { fileService, memberService } from '@/services'
 import type { Member, MemberInput, VoiceType } from '@/types'
 import { Avatar, Button, Field, Input, Modal, Select, Switch, Textarea } from '@/components/ui'
 
@@ -52,7 +52,7 @@ export function MemberForm({ open, onClose, member }: MemberFormProps) {
   const onFile = async (file: File | undefined) => {
     if (!file) return
     try {
-      set('photoUrl', await readImageAsDataUrl(file, 320))
+      set('photoUrl', await fileService.uploadImage(file, { kind: 'photo', maxSize: 320, memberId: member?.id }))
     } catch (err) {
       toast.error('Imagem inválida', err instanceof Error ? err.message : undefined)
     }

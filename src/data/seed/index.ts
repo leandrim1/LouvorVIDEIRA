@@ -44,7 +44,7 @@ export interface DatabaseState {
   notifications: AppNotification[]
 }
 
-/** IDs determinísticos no formato UUID (compatíveis com Postgres/Supabase) */
+/** IDs determinísticos no formato UUID (compatíveis com o PostgreSQL) */
 const sid = (prefix: string, n: number) => `${prefix}000000-0000-4000-8000-${String(n).padStart(12, '0')}`
 
 export const SEED_IDS = {
@@ -156,12 +156,12 @@ export function createSeed(now = new Date()): DatabaseState {
   const userRoles: Record<number, User['role']> = { 0: 'admin', 9: 'leader', 5: 'leader' }
   const users: User[] = members.map((m, i) => ({
     id: SEED_IDS.user(i + 1),
-    authUserId: null,
     memberId: m.id,
     name: m.name,
     email: m.email,
     role: userRoles[i] ?? 'member',
     approved: true,
+    registered: true,
     ...ts,
   }))
 

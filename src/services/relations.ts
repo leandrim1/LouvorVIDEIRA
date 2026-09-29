@@ -1,7 +1,7 @@
 /**
  * Funções puras que montam os agregados (joins) a partir das linhas das tabelas.
- * Mantidas separadas para que o provedor Supabase possa, no futuro, substituir
- * por consultas com `select('*, relacao(*)')` sem alterar a UI.
+ * Mantidas separadas para que a API possa, no futuro, substituir por
+ * consultas relacionais do Drizzle no servidor sem alterar a UI.
  */
 import { MEMBER_ROLES } from '@/lib/constants'
 import type {

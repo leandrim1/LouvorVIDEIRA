@@ -1,34 +1,29 @@
-import { isSupabaseConfigured } from '../config'
-import { getSupabase } from '../supabaseClient'
-import { LocalProvider } from './localProvider'
+import { isServerMode } from '../config'
+import { ApiProvider } from './apiProvider'
 import type { DataProvider } from './types'
 
 export * from './types'
 export { onChange, emitChange } from './changes'
-export { isSupabaseConfigured }
+export { isServerMode }
 
 let providerPromise: Promise<DataProvider> | null = null
 
 /**
  * Retorna o provedor de dados ativo.
- * - Padrão: LocalProvider (localStorage + dados de demonstração)
- * - VITE_DATA_PROVIDER=supabase + credenciais: SupabaseProvider (carregado sob demanda)
+ * - Padrão: ApiProvider (React → /api → Drizzle → Neon PostgreSQL)
+ * - VITE_DATA_PROVIDER=demo: LocalProvider (dados fictícios no navegador, carregado sob demanda)
  */
 export function getProvider(): Promise<DataProvider> {
-  if (!providerPromise) {
-    providerPromise = isSupabaseConfigured
-      ? Promise.all([getSupabase(), import('./supabaseProvider')]).then(
-          ([client, { SupabaseProvider }]) => new SupabaseProvider(client),
-        )
-      : Promise.resolve(new LocalProvider())
-  }
+  providerPromise ??= isServerMode
+    ? Promise.resolve(new ApiProvider())
+    : import('./localProvider').then(({ LocalProvider }) => new LocalProvider())
   return providerPromise
 }
 
 /** Atalho com a mesma API do provedor, resolvido de forma preguiçosa */
 export const db: DataProvider = {
   get name() {
-    return isSupabaseConfigured ? ('supabase' as const) : ('local' as const)
+    return isServerMode ? ('api' as const) : ('local' as const)
   },
   list: (table, filter) => getProvider().then((p) => p.list(table, filter)),
   get: (table, id) => getProvider().then((p) => p.get(table, id)),

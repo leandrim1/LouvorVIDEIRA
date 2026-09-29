@@ -8,20 +8,23 @@ import { Avatar, Badge, Button, Card, CardBody, CardHeader, Field, Input } from 
 
 /** Conta do usuário logado: dados, troca de senha e sair */
 export function AccountCard({ id, className }: { id?: string; className?: string }) {
-  const { authUser, updatePassword, signOut } = useAuth()
+  const { authUser, changePassword, signOut } = useAuth()
   const { user, member } = useSession()
   const toast = useToast()
+  const [current, setCurrent] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
-    if (password.length < 6) return setError('A senha precisa ter pelo menos 6 caracteres.')
+    if (!current) return setError('Informe a senha atual.')
+    if (password.length < 8) return setError('A nova senha precisa ter pelo menos 8 caracteres.')
     setError(null)
     setSaving(true)
     try {
-      await updatePassword(password)
+      await changePassword(current, password)
+      setCurrent('')
       setPassword('')
       toast.success('Senha alterada')
     } catch (err) {
@@ -48,7 +51,17 @@ export function AccountCard({ id, className }: { id?: string; className?: string
           </div>
         </div>
         <form onSubmit={submit} noValidate className="space-y-2">
-          <Field label="Nova senha" htmlFor="account-password" error={error}>
+          <Field label="Senha atual" htmlFor="account-current-password">
+            <Input
+              id="account-current-password"
+              type="password"
+              autoComplete="current-password"
+              value={current}
+              onChange={(e) => setCurrent(e.target.value)}
+              invalid={!!error && !current}
+            />
+          </Field>
+          <Field label="Nova senha" htmlFor="account-password" error={error} hint="Mínimo de 8 caracteres.">
             <Input
               id="account-password"
               type="password"

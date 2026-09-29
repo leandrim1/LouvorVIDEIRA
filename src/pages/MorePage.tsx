@@ -58,7 +58,7 @@ export default function MorePage() {
           </div>
         </div>
       </div>
-      {mode === 'supabase' && (
+      {mode === 'server' && (
         <Button variant="danger-ghost" size="lg" className="w-full" leftIcon={<LogOut />} onClick={() => void signOut()}>
           Sair da conta
         </Button>

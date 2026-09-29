@@ -11,7 +11,7 @@ export interface SessionContextValue {
   can: (permission: Permission) => boolean
   /** Recarrega o cadastro (ex.: após aprovação) */
   refresh: () => void
-  /** Troca o usuário ativo (modo demonstração). Com Supabase Auth, vem da sessão. */
+  /** Troca o usuário ativo (modo demonstração). Com login real, vem da sessão do servidor. */
   switchUser: (userId: string) => void
 }
 

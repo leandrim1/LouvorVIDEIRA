@@ -35,7 +35,7 @@ export function UserMenu() {
         { label: 'Configurações', icon: <Settings />, href: '/configuracoes' },
         { label: 'Trocar perfil (demo)', icon: <UserCog />, href: '/configuracoes#perfil', hidden: mode !== 'demo' },
         { label: 'Administração', icon: <ShieldCheck />, href: '/admin', hidden: !can('admin:access') },
-        { label: 'Sair', icon: <LogOut />, onSelect: () => void signOut(), hidden: mode !== 'supabase', separatorBefore: true, danger: true },
+        { label: 'Sair', icon: <LogOut />, onSelect: () => void signOut(), hidden: mode !== 'server', separatorBefore: true, danger: true },
       ]}
     />
   )

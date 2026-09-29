@@ -1,7 +1,8 @@
 import { Link } from 'react-router-dom'
-import { CalendarPlus, Check, ClipboardList, Hourglass, ListPlus, Lock, Mic2, MoreHorizontal, Music, ShieldCheck, ShieldOff, Trash2, UserCheck, UserPlus, Users, X } from 'lucide-react'
+import { CalendarPlus, Check, ClipboardList, Hourglass, KeyRound, ListPlus, Lock, Mic2, MoreHorizontal, Music, ShieldCheck, ShieldOff, Trash2, UserCheck, UserPlus, Users, X } from 'lucide-react'
 import { useAuth } from '@/contexts/auth'
 import { useConfirm } from '@/contexts/confirm'
+import { useToast } from '@/contexts/toast'
 import { useSession } from '@/contexts/session'
 import { useMembers, useUsers } from '@/hooks/useData'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
@@ -26,7 +27,7 @@ export default function AdminPage() {
   const { mode } = useAuth()
   const confirm = useConfirm()
   const createAccess = useMutation((memberId: string) => userService.createForMember(members.find((m) => m.id === memberId)!, 'member'), {
-    success: mode === 'supabase' ? 'Convite criado: a pessoa já pode criar conta com este e-mail' : 'Acesso criado',
+    success: mode === 'server' ? 'Convite criado. Gere uma senha temporária para a pessoa entrar.' : 'Acesso criado',
     error: 'Não foi possível criar o acesso',
   })
   const setApproved = useMutation(({ id, approved }: { id: string; approved: boolean }) => userService.setApproved(id, approved), {
@@ -37,6 +38,38 @@ export default function AdminPage() {
     success: 'Integrante vinculado',
   })
   const removeUser = useMutation((id: string) => userService.remove(id), { success: 'Acesso removido' })
+  const toast = useToast()
+  const resetPassword = useMutation((id: string) => userService.resetPassword(id), {
+    error: 'Não foi possível gerar a senha temporária',
+  })
+
+  /** Senha temporária: exibida apenas uma vez para o administrador enviar à pessoa */
+  const onResetPassword = async (u: User) => {
+    const ok = await confirm({
+      title: `Gerar senha temporária para ${u.name}?`,
+      description: u.registered
+        ? 'A senha atual deixa de funcionar e a pessoa é desconectada dos aparelhos.'
+        : 'A pessoa poderá entrar com o e-mail cadastrado e esta senha.',
+      confirmLabel: 'Gerar senha',
+    })
+    if (!ok) return
+    const password = await resetPassword.mutate(u.id)
+    if (!password) return
+    const copy = await confirm({
+      title: `Senha temporária: ${password}`,
+      description: `Envie para ${u.name} por um canal privado. Ela não será exibida novamente. Depois de entrar, a pessoa troca a senha em Configurações.`,
+      confirmLabel: 'Copiar senha',
+      cancelLabel: 'Fechar',
+    })
+    if (copy) {
+      try {
+        await navigator.clipboard.writeText(password)
+        toast.success('Senha copiada')
+      } catch {
+        toast.error('Não foi possível copiar', password)
+      }
+    }
+  }
 
   const onRemove = async (u: User) => {
     const ok = await confirm({
@@ -71,8 +104,8 @@ export default function AdminPage() {
   }
 
   const membersWithoutAccess = members.filter((m) => !users.some((u) => u.memberId === m.id))
-  const pendingUsers = users.filter((u) => !u.approved && u.authUserId)
-  const activeUsers = users.filter((u) => u.approved || !u.authUserId)
+  const pendingUsers = users.filter((u) => !u.approved && u.registered)
+  const activeUsers = users.filter((u) => u.approved || !u.registered)
   const shortcuts = [
     { to: '/musicas/nova', label: 'Nova música', icon: <Music /> },
     { to: '/repertorios/novo', label: 'Novo repertório', icon: <ListPlus /> },
@@ -152,7 +185,7 @@ export default function AdminPage() {
                           </p>
                           <p className="truncate text-xs text-ink-3">
                             {u.email}
-                            {mode === 'supabase' && !u.authUserId && ' · convite enviado, conta ainda não criada'}
+                            {mode === 'server' && !u.registered && ' · convite criado, conta ainda não ativada'}
                             {!u.approved && ' · acesso revogado'}
                           </p>
                         </div>
@@ -176,6 +209,9 @@ export default function AdminPage() {
                                 u.approved
                                   ? { label: 'Revogar acesso', icon: <ShieldOff />, onSelect: () => void setApproved.mutate({ id: u.id, approved: false }) }
                                   : { label: 'Liberar acesso', icon: <UserCheck />, onSelect: () => void setApproved.mutate({ id: u.id, approved: true }) },
+                                ...(mode === 'server'
+                                  ? [{ label: 'Gerar senha temporária', icon: <KeyRound />, onSelect: () => void onResetPassword(u) }]
+                                  : []),
                                 { label: 'Remover acesso', icon: <Trash2 />, onSelect: () => void onRemove(u), danger: true, separatorBefore: true },
                               ]}
                             />
@@ -208,8 +244,8 @@ export default function AdminPage() {
                 <div className="mt-4 rounded-2xl border border-dashed border-line-strong p-4">
                   <p className="text-sm font-semibold text-ink">Integrantes sem acesso</p>
                   <p className="mb-3 text-xs text-ink-3">
-                    {mode === 'supabase'
-                      ? 'Convide pelo e-mail cadastrado na Equipe. Quando a pessoa criar conta com esse e-mail, o acesso é liberado automaticamente.'
+                    {mode === 'server'
+                      ? 'Convide pelo e-mail cadastrado na Equipe e gere uma senha temporária em ⋯ para a pessoa entrar. Se ela criar a conta sozinha, aprove o acesso aqui.'
                       : 'Crie um acesso para o integrante.'}
                   </p>
                   <ul className="space-y-2">
@@ -222,7 +258,7 @@ export default function AdminPage() {
                         </span>
                         {m.email ? (
                           <Button size="xs" variant="soft" leftIcon={<UserPlus />} onClick={() => void createAccess.mutate(m.id)}>
-                            {mode === 'supabase' ? 'Convidar' : 'Criar acesso'}
+                            {mode === 'server' ? 'Convidar' : 'Criar acesso'}
                           </Button>
                         ) : (
                           <Link to={`/equipe?integrante=${m.id}`} className="text-xs font-semibold text-brand-600 hover:underline dark:text-brand-300">

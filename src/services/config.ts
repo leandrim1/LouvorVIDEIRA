@@ -1,7 +1,12 @@
-/** Configuração do provedor de dados (variáveis de ambiente do Vite) */
-export const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined
-export const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
-const PROVIDER = (import.meta.env.VITE_DATA_PROVIDER as string | undefined) ?? 'local'
+/**
+ * Modo de dados (variável VITE_DATA_PROVIDER, definida no build):
+ * - `api` (padrão): React → /api (Vercel Functions) → Drizzle → Neon PostgreSQL, com login real.
+ * - `demo`: dados fictícios no navegador, sem login (usado no artifact de demonstração).
+ * Nenhuma credencial do banco existe no frontend.
+ */
+export type DataMode = 'api' | 'demo'
 
-/** Supabase ativo: dados compartilhados e login real. Caso contrário, modo demonstração local. */
-export const isSupabaseConfigured = PROVIDER === 'supabase' && Boolean(SUPABASE_URL && SUPABASE_ANON_KEY)
+export const DATA_MODE: DataMode = import.meta.env.VITE_DATA_PROVIDER === 'demo' ? 'demo' : 'api'
+
+/** Dados compartilhados no servidor, com login */
+export const isServerMode = DATA_MODE === 'api'

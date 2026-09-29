@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { ArrowLeft, Lock, LogIn, Mail, MailCheck, User, UserPlus } from 'lucide-react'
+import { ArrowLeft, KeyRound, Lock, LogIn, Mail, User, UserPlus } from 'lucide-react'
 import { authErrorMessage, useAuth } from '@/contexts/auth'
 import { Button, Field, Input, SegmentedControl } from '@/components/ui'
 import { AuthLayout } from './AuthLayout'
@@ -8,16 +8,15 @@ type Mode = 'login' | 'signup' | 'forgot'
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-/** Entrar, criar conta e recuperar senha (Supabase Auth) */
+/** Entrar, criar conta e recuperar senha (login real na API) */
 export function AuthScreen() {
-  const { signIn, signUp, sendPasswordReset } = useAuth()
+  const { signIn, signUp, setupRequired } = useAuth()
   const [mode, setMode] = useState<Mode>('login')
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
-  const [sentTo, setSentTo] = useState<{ email: string; kind: 'confirm' | 'reset' } | null>(null)
   const [loading, setLoading] = useState(false)
 
   const switchMode = (next: Mode) => {
@@ -30,7 +29,8 @@ export function AuthScreen() {
     const errors: Record<string, string> = {}
     if (mode === 'signup' && name.trim().length < 2) errors.name = 'Informe seu nome.'
     if (!EMAIL.test(email.trim())) errors.email = 'Informe um e-mail válido.'
-    if (mode !== 'forgot' && password.length < 6) errors.password = 'A senha precisa ter pelo menos 6 caracteres.'
+    if (mode === 'login' && !password) errors.password = 'Informe a senha.'
+    if (mode === 'signup' && password.length < 8) errors.password = 'A senha precisa ter pelo menos 8 caracteres.'
     setFieldErrors(errors)
     return Object.keys(errors).length === 0
   }
@@ -42,13 +42,7 @@ export function AuthScreen() {
     setLoading(true)
     try {
       if (mode === 'login') await signIn(email, password)
-      else if (mode === 'signup') {
-        const needsConfirmation = await signUp(name, email, password)
-        if (needsConfirmation) setSentTo({ email: email.trim(), kind: 'confirm' })
-      } else {
-        await sendPasswordReset(email)
-        setSentTo({ email: email.trim(), kind: 'reset' })
-      }
+      else await signUp(name, email, password)
     } catch (err) {
       setError(authErrorMessage(err))
     } finally {
@@ -56,43 +50,15 @@ export function AuthScreen() {
     }
   }
 
-  if (sentTo) {
-    return (
-      <AuthLayout
-        title={sentTo.kind === 'confirm' ? 'Confirme seu e-mail' : 'Verifique seu e-mail'}
-        description={
-          sentTo.kind === 'confirm'
-            ? 'Enviamos um link de confirmação. Depois de confirmar, volte aqui e entre com seu e-mail e senha.'
-            : 'Enviamos um link para criar uma nova senha.'
-        }
-      >
-        <div className="flex items-center gap-3 rounded-2xl border border-line bg-surface p-4">
-          <MailCheck className="size-6 shrink-0 text-leaf-600 dark:text-leaf-300" aria-hidden />
-          <p className="min-w-0 text-sm break-all text-ink">{sentTo.email}</p>
-        </div>
-        <p className="mt-3 text-xs text-ink-3">Não chegou? Confira a caixa de spam ou aguarde alguns minutos.</p>
-        <Button
-          variant="secondary"
-          className="mt-6 w-full"
-          leftIcon={<ArrowLeft />}
-          onClick={() => {
-            setSentTo(null)
-            switchMode('login')
-          }}
-        >
-          Voltar para entrar
-        </Button>
-      </AuthLayout>
-    )
-  }
-
   const titles: Record<Mode, { title: string; description: string }> = {
     login: { title: 'Entrar', description: 'Acesse os repertórios e escalas da equipe.' },
     signup: {
       title: 'Criar conta',
-      description: 'A primeira conta criada é a do administrador. As próximas aguardam a aprovação dele.',
+      description: setupRequired
+        ? 'A primeira conta criada é a do administrador, com acesso total.'
+        : 'Depois de criar a conta, o administrador libera o seu acesso.',
     },
-    forgot: { title: 'Recuperar senha', description: 'Informe seu e-mail para receber o link de nova senha.' },
+    forgot: { title: 'Recuperar senha', description: 'A senha é redefinida pelo administrador da equipe.' },
   }
 
   return (
@@ -111,30 +77,43 @@ export function AuthScreen() {
         />
       )}
 
-      <form onSubmit={submit} noValidate className="space-y-4">
-        {mode === 'signup' && (
-          <Field label="Nome" htmlFor="auth-name" error={fieldErrors.name}>
-            <Input id="auth-name" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} invalid={!!fieldErrors.name} leftIcon={<User />} />
+      {mode === 'forgot' ? (
+        <>
+          <div className="flex items-start gap-3 rounded-2xl border border-line bg-surface p-4">
+            <KeyRound className="mt-0.5 size-6 shrink-0 text-brand-600 dark:text-brand-300" aria-hidden />
+            <p className="min-w-0 text-sm text-ink-2">
+              Peça ao administrador da equipe para gerar uma <strong className="font-semibold text-ink">senha temporária</strong> em
+              Administração → Usuários. Depois de entrar, troque a senha em Configurações.
+            </p>
+          </div>
+          <Button variant="secondary" className="mt-6 w-full" leftIcon={<ArrowLeft />} onClick={() => switchMode('login')}>
+            Voltar para entrar
+          </Button>
+        </>
+      ) : (
+        <form onSubmit={submit} noValidate className="space-y-4">
+          {mode === 'signup' && (
+            <Field label="Nome" htmlFor="auth-name" error={fieldErrors.name}>
+              <Input id="auth-name" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} invalid={!!fieldErrors.name} leftIcon={<User />} />
+            </Field>
+          )}
+          <Field label="E-mail" htmlFor="auth-email" error={fieldErrors.email}>
+            <Input
+              id="auth-email"
+              type="email"
+              inputMode="email"
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              invalid={!!fieldErrors.email}
+              leftIcon={<Mail />}
+            />
           </Field>
-        )}
-        <Field label="E-mail" htmlFor="auth-email" error={fieldErrors.email}>
-          <Input
-            id="auth-email"
-            type="email"
-            inputMode="email"
-            autoComplete="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            invalid={!!fieldErrors.email}
-            leftIcon={<Mail />}
-          />
-        </Field>
-        {mode !== 'forgot' && (
           <Field
             label="Senha"
             htmlFor="auth-password"
             error={fieldErrors.password}
-            hint={mode === 'signup' ? 'Mínimo de 6 caracteres.' : undefined}
+            hint={mode === 'signup' ? 'Mínimo de 8 caracteres.' : undefined}
             labelAction={
               mode === 'login' ? (
                 <button type="button" onClick={() => switchMode('forgot')} className="text-xs font-semibold text-brand-600 hover:underline dark:text-brand-300">
@@ -153,30 +132,24 @@ export function AuthScreen() {
               leftIcon={<Lock />}
             />
           </Field>
-        )}
 
-        {error && (
-          <p role="alert" className="rounded-xl bg-red-50 px-3 py-2.5 text-sm font-medium text-red-700 dark:bg-red-500/10 dark:text-red-300">
-            {error}
-          </p>
-        )}
+          {error && (
+            <p role="alert" className="rounded-xl bg-red-50 px-3 py-2.5 text-sm font-medium text-red-700 dark:bg-red-500/10 dark:text-red-300">
+              {error}
+            </p>
+          )}
 
-        <Button
-          type="submit"
-          size="lg"
-          className="w-full"
-          loading={loading}
-          leftIcon={mode === 'login' ? <LogIn /> : mode === 'signup' ? <UserPlus /> : <Mail />}
-        >
-          {mode === 'login' ? 'Entrar' : mode === 'signup' ? 'Criar conta' : 'Enviar link'}
-        </Button>
-
-        {mode === 'forgot' && (
-          <Button variant="ghost" className="w-full" leftIcon={<ArrowLeft />} onClick={() => switchMode('login')}>
-            Voltar para entrar
+          <Button
+            type="submit"
+            size="lg"
+            className="w-full"
+            loading={loading}
+            leftIcon={mode === 'login' ? <LogIn /> : <UserPlus />}
+          >
+            {mode === 'login' ? 'Entrar' : 'Criar conta'}
           </Button>
-        )}
-      </form>
+        </form>
+      )}
     </AuthLayout>
   )
 }

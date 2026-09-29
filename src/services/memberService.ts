@@ -1,6 +1,7 @@
 import { generateId } from '@/lib/utils'
 import type { Member, MemberInput, User, UserRole } from '@/types'
-import { NotFoundError, db } from './db'
+import { apiFetch } from './apiClient'
+import { NotFoundError, db, emitChange, isServerMode } from './db'
 
 const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name, 'pt-BR')
 
@@ -72,15 +73,23 @@ export const userService = {
     const now = new Date().toISOString()
     return db.insert('users', {
       id: generateId(),
-      authUserId: null,
       memberId: member.id,
       name: member.name,
       email: member.email.trim().toLowerCase(),
       role,
       approved: true,
+      registered: false,
       createdAt: now,
       updatedAt: now,
     })
+  },
+
+  /** Gera uma senha temporária (somente administradores, no servidor). A pessoa troca depois em Configurações. */
+  async resetPassword(id: string): Promise<string> {
+    if (!isServerMode) throw new Error('Disponível apenas com o banco de dados real.')
+    const result = await apiFetch<{ temporaryPassword: string }>(`users/${encodeURIComponent(id)}/reset-password`, { method: 'POST', body: {} })
+    emitChange('users')
+    return result.temporaryPassword
   },
 
   /** Libera (ou revoga) o acesso de quem criou conta */
@@ -97,7 +106,7 @@ export const userService = {
     return db.update('users', id, { memberId, updatedAt: new Date().toISOString() })
   },
 
-  /** Remove o acesso (a conta de login continua existindo no Supabase Auth) */
+  /** Remove o acesso (a pessoa perde o login; o cadastro de integrante continua) */
   async remove(id: string): Promise<void> {
     await db.removeWhere('favorites', { userId: id })
     await db.removeWhere('song_views', { userId: id })

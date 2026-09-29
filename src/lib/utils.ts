@@ -5,12 +5,14 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export function generateId(prefix = ''): string {
-  const random =
-    typeof crypto !== 'undefined' && 'randomUUID' in crypto
-      ? crypto.randomUUID()
-      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
-  return prefix ? `${prefix}_${random}` : random
+/** UUID v4 (formato aceito pelo PostgreSQL). Funciona também fora de HTTPS, onde randomUUID não existe. */
+export function generateId(): string {
+  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID()
+  const bytes = crypto.getRandomValues(new Uint8Array(16))
+  bytes[6] = (bytes[6] & 0x0f) | 0x40
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
 }
 
 /** Remove acentos e normaliza para buscas */
@@ -106,8 +108,8 @@ export function whatsappLink(phone: string): string | null {
   return `https://wa.me/${full}`
 }
 
-/** Lê um arquivo de imagem, redimensiona e retorna data URL (evita estourar o storage local) */
-export function readImageAsDataUrl(file: File, maxSize = 480): Promise<string> {
+/** Lê um arquivo de imagem e o redimensiona em um canvas (lado maior = maxSize) */
+function drawResizedImage(file: File, maxSize: number): Promise<HTMLCanvasElement> {
   return new Promise((resolve, reject) => {
     if (!file.type.startsWith('image/')) {
       reject(new Error('Selecione um arquivo de imagem.'))
@@ -129,12 +131,25 @@ export function readImageAsDataUrl(file: File, maxSize = 480): Promise<string> {
           return
         }
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-        resolve(canvas.toDataURL('image/jpeg', 0.85))
+        resolve(canvas)
       }
       img.src = reader.result as string
     }
     reader.readAsDataURL(file)
   })
+}
+
+/** Lê um arquivo de imagem, redimensiona e retorna data URL (evita estourar o storage local) */
+export async function readImageAsDataUrl(file: File, maxSize = 480): Promise<string> {
+  return (await drawResizedImage(file, maxSize)).toDataURL('image/jpeg', 0.85)
+}
+
+/** Redimensiona e comprime a imagem em JPEG para envio ao servidor */
+export async function readImageAsBlob(file: File, maxSize = 480): Promise<Blob> {
+  const canvas = await drawResizedImage(file, maxSize)
+  return new Promise((resolve, reject) =>
+    canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('Não foi possível processar a imagem.'))), 'image/jpeg', 0.85),
+  )
 }
 
 export function downloadJson(filename: string, data: unknown) {

@@ -1,4 +1,4 @@
-import type { UserRole } from '@/types'
+import type { UserRole } from '../types/index'
 
 export type Permission =
   | 'songs:write'

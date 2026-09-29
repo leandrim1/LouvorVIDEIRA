@@ -20,7 +20,7 @@ export interface QueryResult<T> {
 
 /**
  * Busca dados de um service e revalida automaticamente quando alguma das
- * tabelas informadas é alterada (por esta aba, outra aba ou Supabase Realtime).
+ * tabelas informadas é alterada (por esta aba, por outra aba ou ao voltar para o app).
  * Passe `key = null` para desabilitar a consulta.
  */
 export function useQuery<T>(key: string | null, fetcher: () => Promise<T>, tables: TableName[]): QueryResult<T> {

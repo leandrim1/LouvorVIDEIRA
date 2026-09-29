@@ -10,22 +10,48 @@ Sistema de gerenciamento de repertórios para a equipe de louvor. Com ele, qualq
 
 ## Tecnologias
 
-React 19 · TypeScript (strict) · Vite · Tailwind CSS v4 · React Router 7 · Lucide React · dnd-kit (arrastar e soltar) · Supabase (opcional) · Vitest
+**Frontend:** React 19 · TypeScript (strict) · Vite · Tailwind CSS v4 · React Router 7 · Lucide React · dnd-kit (arrastar e soltar)
+
+**Backend:** Vercel Functions · Drizzle ORM + Drizzle Kit · Neon PostgreSQL · Zod (validação) · Vercel Blob (arquivos)
+
+**Qualidade:** Vitest (lógica e API contra um PostgreSQL real em memória) · oxlint
+
+```
+React (navegador)  →  /api (Vercel Functions)  →  Drizzle ORM  →  Neon PostgreSQL
+                                               →  Vercel Blob (fotos, capas, PDFs)
+```
+
+O navegador **nunca** acessa o banco: a `DATABASE_URL` e os tokens existem só no servidor.
 
 ## Como rodar
 
+Requer Node.js 20.12 ou superior.
+
 ```bash
 npm install
-npm run dev        # http://localhost:5173
-npm run build      # typecheck + build de produção em dist/
-npm run preview    # serve o build
-npm run test       # testes unitários (Vitest)
-npm run lint       # oxlint
+npm run dev        # http://localhost:5173 (site + API)
 ```
 
-Sem nenhuma configuração, o app roda em **modo demonstração**: os dados de demonstração (18 músicas, 12 integrantes, 7 repertórios, 5 ensaios, 14 eventos, escalas e notificações) ficam no `localStorage` do navegador. As datas são geradas **em relação ao dia atual**, então sempre há um "próximo culto" no domingo seguinte.
+Sem nenhuma configuração, `npm run dev` já funciona: a API usa um **PostgreSQL local** (PGlite, gravado em `.pglite/`), aplica as migrations e carrega os dados de exemplo. A primeira conta criada no site vira o **administrador**.
 
-> Letras, cifras, artistas e integrantes são fictícios. Os vídeos de estudo são *pads* de ensaio públicos do YouTube, um por tonalidade.
+Para usar o banco Neon da Vercel no desenvolvimento, crie `.env.local` com a `DATABASE_URL` (veja [Banco de dados](#banco-de-dados-neon--drizzle)).
+
+| Comando | O que faz |
+| --- | --- |
+| `npm run dev` | Site + API em modo desenvolvimento |
+| `npm run build` | Verificação de tipos (site, API e banco) + build de produção em `dist/` |
+| `npm run build:demo` | Build de demonstração, sem banco (dados fictícios no navegador) |
+| `npm run test` | Testes (lógica musical, datas, seed e API) |
+| `npm run lint` | oxlint |
+| `npm run db:generate` | Gera uma nova migration a partir de `src/db/schema.ts` |
+| `npm run db:migrate` | Aplica as migrations pendentes |
+| `npm run db:push` | Sincroniza o schema direto no banco, sem migration (apenas protótipos) |
+| `npm run db:studio` | Abre o Drizzle Studio para ver e editar os dados |
+| `npm run db:seed` | Carrega os dados de desenvolvimento (`-- --reset` apaga e recria) |
+
+Os comandos `db:*` usam a `DATABASE_URL` do `.env.local`; sem ela, usam o banco local `.pglite/`. Pare o `npm run dev` antes de rodar `db:*` no banco local, pois ele só aceita um processo por vez.
+
+> Letras, cifras, artistas, integrantes, e-mails (`@louvorvideira.example`) e telefones dos dados de exemplo são fictícios. Os vídeos de estudo são *pads* de ensaio públicos do YouTube.
 
 ## Funcionalidades
 
@@ -57,90 +83,153 @@ Estados de carregamento (skeleton), estados vazios, tratamento de erros, toasts,
 | **Líder** | Músicas, repertórios, eventos, escalas, ensaios e integrantes |
 | **Integrante** | Consultar repertórios, músicas e escalas; registrar preparação, favoritos e observações |
 
-No modo demonstração, troque de perfil em **Configurações → Perfil de acesso**.
+As permissões são verificadas **no servidor** a cada requisição (a interface apenas esconde o que a pessoa não pode fazer). No modo demonstração, troque de perfil em **Configurações → Perfil de acesso**.
 
 ## Arquitetura
 
 ```
+api/
+└── index.ts          # Vercel Function única: recebe /api/* (rewrite em vercel.json)
 src/
-├── types/            # Modelo de domínio (espelha as tabelas do banco)
+├── db/
+│   ├── schema.ts     # Tabelas, enums, índices e relacionamentos (Drizzle)
+│   ├── index.ts      # Conexão com o Neon (driver HTTP, sem conexão persistente)
+│   ├── migrations/   # SQL gerado pelo Drizzle Kit (versionado)
+│   ├── migrate.ts    # npm run db:migrate
+│   ├── seed.ts       # npm run db:seed (somente desenvolvimento)
+│   └── local.ts      # PostgreSQL local (PGlite) para desenvolvimento e testes
+├── server/
+│   ├── router.ts     # Rotas da API, CRUD genérico, lote de leituras, exportação
+│   ├── resources.ts  # Validação Zod e regras de permissão por tabela
+│   ├── auth.ts       # Senhas (scrypt), sessões e cookie httpOnly
+│   ├── files.ts      # Upload para o Vercel Blob
+│   ├── http.ts       # Respostas e erros padronizados
+│   └── dev.ts        # API no `npm run dev`
+├── types/            # Tipos do domínio, derivados do schema do banco
 ├── lib/              # Lógica pura: tonalidades/cifras, vídeos, datas, validação, permissões
-├── data/seed/        # Dados de demonstração (datas relativas ao dia atual)
+├── data/seed/        # Dados do modo demonstração
 ├── services/
-│   ├── db/           # Contrato DataProvider + LocalProvider (localStorage) + SupabaseProvider
+│   ├── apiClient.ts  # fetch para /api (cookie de sessão, erros)
+│   ├── db/           # Contrato DataProvider + ApiProvider (API) + LocalProvider (demonstração)
 │   ├── relations.ts  # Montagem dos agregados (joins)
 │   └── *Service.ts   # Regras de negócio por domínio (sem dependência de UI)
 ├── hooks/            # useQuery (cache + revalidação automática), useMutation, useForm, useUrlState…
-├── contexts/         # Tema, sessão/permissões, toasts, confirmação
-├── components/
-│   ├── ui/           # Design system: Button, Modal, Drawer, Toast, Dropdown, Tabs, EmptyState…
-│   ├── layout/       # Sidebar (desktop), BottomNav (celular), Topbar
-│   └── songs|repertoires|events|members|schedules|rehearsals|calendar|search|notifications
+├── contexts/         # Tema, login, sessão/permissões, toasts, confirmação
+├── components/       # Design system, layout e componentes de cada módulo
 ├── pages/            # Uma página por rota (carregadas sob demanda)
 └── routes/           # React Router + tela de erro
 ```
 
-- **UI e lógica separadas.** As páginas usam hooks (`useRepertoire`, `useSongs`…), os hooks chamam os *services*, e os *services* falam com um `DataProvider`.
-- **Revalidação automática.** Cada escrita emite quais tabelas mudaram. As consultas que dependem delas recarregam sozinhas, seja nesta aba, em outra aba ou via Supabase Realtime.
-- **Componentes pedidos:** `SongCard`, `RepertoireCard`, `MemberCard`, `EventCard`, `SongPlayer`, `SongLyrics`, `SongChords`, `KeySelector`, `MusicStatus`, `ScheduleCard`, `Calendar`, `SearchBar`, `Modal`, `Drawer`, `Toast`, `Dropdown`, `Tabs`, `EmptyState`, `LoadingState`, `ConfirmationDialog`.
+- **UI e dados separados.** As páginas usam hooks, os hooks chamam os *services*, e os *services* falam com um `DataProvider`. Com o banco, o `ApiProvider` chama a API; na demonstração, o `LocalProvider` usa o navegador.
+- **Menos chamadas.** Leituras feitas ao mesmo tempo (ex.: o dashboard) viram uma única chamada a `/api/batch`.
+- **Revalidação automática.** Cada escrita avisa quais tabelas mudaram e as telas que dependem delas recarregam. Ao voltar para o app, os dados são atualizados.
 
-## Colocar no ar com login real (Supabase + Vercel)
+### API
 
-Sem configuração, o app roda em **modo demonstração** (dados fictícios, sem login). Para a equipe usar de verdade, com login, dados compartilhados e um administrador real, siga os passos abaixo. Supabase e Vercel têm planos gratuitos.
+| Rota | Métodos | Descrição |
+| --- | --- | --- |
+| `/api/songs`, `/api/song-videos`, `/api/song-links`, `/api/song-notes` | GET, POST, PATCH, DELETE | Músicas, vídeos, links e observações |
+| `/api/repertoires`, `/api/repertoire-songs` | GET, POST, PATCH, DELETE | Repertórios e a ordem das músicas |
+| `/api/members`, `/api/users` | GET, POST, PATCH, DELETE | Integrantes e usuários (níveis de acesso) |
+| `/api/events`, `/api/rehearsals` | GET, POST, PATCH, DELETE | Eventos e ensaios |
+| `/api/schedules`, `/api/schedule-members` | GET, POST, PATCH, DELETE | Escalas e escalados |
+| `/api/notifications` | GET, POST, PATCH, DELETE | Notificações |
+| `/api/favorites`, `/api/song-views` | GET, POST, DELETE | Favoritos e histórico (cada pessoa vê só os seus) |
+| `/api/song-preparations` | GET, POST, PATCH, DELETE | Preparação individual |
+| `/api/files` | GET, POST (multipart), DELETE | Arquivos no Vercel Blob |
+| `/api/auth/session`, `signup`, `login`, `logout`, `password` | GET, POST | Login e senha |
+| `/api/users/:id/reset-password` | POST | Senha temporária (administrador) |
+| `/api/batch` | POST | Até 30 leituras em uma chamada |
+| `/api/export` | GET | Backup em JSON (administrador) |
+| `/api/health` | GET | Verifica a conexão com o banco |
 
-### 1. Banco de dados e login (Supabase)
-1. Crie uma conta em [supabase.com](https://supabase.com) → **New project** (região *South America (São Paulo)*). Guarde a senha do banco.
-2. No menu do projeto, abra **SQL Editor** → **New query**, cole todo o conteúdo de [`supabase/setup.sql`](supabase/setup.sql) e clique em **Run**. Isso cria as tabelas, as permissões e a regra *"a primeira conta criada vira administrador"*.
-3. Abra **Project Settings → API** e copie:
-   - **Project URL** (ex.: `https://abcd1234.supabase.co`)
-   - chave **anon public**. Ela pode ficar no site; **nunca** use a chave `service_role` no app.
+Listagens aceitam filtros por coluna (`/api/songs?artist=…`, `?memberId=null`). Respostas de sucesso vêm em `{ "data": … }` e erros em `{ "error": { "code", "message", "details" } }`, com status 200, 201, 204, 400, 401, 403, 404, 409, 413, 500 ou 503.
 
-### 2. Hospedagem (Vercel)
-1. Entre em [vercel.com](https://vercel.com) com sua conta do GitHub → **Add New… → Project** → importe o repositório `LouvorVIDEIRA`.
-2. O framework **Vite** é detectado sozinho (build `npm run build`, saída `dist`).
-3. Em **Environment Variables**, adicione:
-   | Nome | Valor |
-   | --- | --- |
-   | `VITE_DATA_PROVIDER` | `supabase` |
-   | `VITE_SUPABASE_URL` | a Project URL |
-   | `VITE_SUPABASE_ANON_KEY` | a chave anon public |
-4. Clique em **Deploy**. Ao final, a Vercel mostra o endereço do site (ex.: `https://louvor-videira.vercel.app`).
+### Segurança
 
-### 3. Ligar o site ao login
-No Supabase, abra **Authentication → URL Configuration**:
-- **Site URL**: o endereço da Vercel (ex.: `https://louvor-videira.vercel.app`)
-- **Redirect URLs**: adicione `https://louvor-videira.vercel.app/**`
+- Toda operação no banco acontece no servidor; o frontend não conhece a `DATABASE_URL` nem os tokens.
+- Todos os dados recebidos são validados com **Zod** (schemas derivados das tabelas); campos que o cliente não pode definir (senha, datas de criação, autor) são ignorados.
+- As **permissões são verificadas no servidor** com base na sessão gravada no banco, nunca no que o navegador envia. Integrantes só alteram a própria preparação, favoritos, observações e leitura de notificações.
+- Senhas com **scrypt**; a sessão é um token aleatório em cookie `httpOnly`/`SameSite=Lax` (`Secure` em HTTPS), e o banco guarda apenas o hash dele.
+- Requisições que alteram dados precisam vir do próprio site (proteção contra CSRF).
+- Mensagens de erro nunca expõem detalhes do banco.
+- Arquivos: tipo identificado pelo conteúdo (JPG, PNG, WEBP, GIF, PDF, MP3, M4A), limite de 4 MB, nome gerado pelo servidor. O binário vai para o Vercel Blob; o banco guarda só URL e metadados.
+- A conexão usa o driver HTTP do Neon: cada requisição é independente, sem conexões persistentes abertas pelas funções.
 
-Sem isso, os links de confirmação de e-mail e de nova senha apontam para `localhost`.
+## Banco de dados (Neon + Drizzle)
 
-### 4. Criar o administrador
-1. Abra o site → **Criar conta** com seu nome, e-mail e senha.
-2. Confirme o e-mail pelo link recebido e entre. **A primeira conta criada é automaticamente o Administrador.**
-3. Pronto: o banco começa vazio, sem dados fictícios. Cadastre músicas, equipe e repertórios.
+### Tabelas
 
-### 5. Trazer a equipe
-- **Convite (recomendado):** cadastre o integrante em **Equipe** com o e-mail dele e clique em **Administração → Convidar**. Quando a pessoa criar conta com esse e-mail, o acesso é liberado sozinho.
-- **Cadastro livre:** a pessoa cria conta no site e aparece em **Administração → Aguardando aprovação**. Aprove e defina o nível (Administrador, Líder ou Integrante).
-- Em **Administração** também dá para revogar ou remover o acesso de alguém.
+`users`, `sessions`, `members`, `songs`, `song_videos`, `song_links`, `song_notes`, `favorites`, `song_views`, `events`, `repertoires`, `repertoire_songs`, `schedules`, `schedule_members`, `rehearsals`, `song_preparations`, `notifications` e `files`, com chaves estrangeiras, exclusão em cascata onde faz sentido (ex.: excluir uma música remove vídeos, links e itens de repertório) e índices nas colunas de busca. O schema fica em [`src/db/schema.ts`](src/db/schema.ts).
 
-> O Supabase gratuito envia poucos e-mails por hora. Se a equipe for grande, cadastre as pessoas aos poucos ou configure um SMTP próprio em **Authentication → Emails**.
+### 1. Criar o banco pela Vercel
+1. No painel da Vercel, abra o projeto → **Storage** → **Create Database** → **Neon** (Marketplace) → escolha a região mais próxima da equipe (ex.: *São Paulo*) e crie.
+2. Conecte o banco ao projeto nos ambientes **Production**, **Preview** e **Development**. A Vercel cria a variável **`DATABASE_URL`** sozinha.
 
-### Como funciona por dentro
-- `supabase/setup.sql` = `migrations/0001_initial_schema.sql` (tabelas, índices, Realtime) + `migrations/0002_auth_and_first_admin.sql` (primeiro administrador, aprovação, RLS).
-- As permissões são aplicadas **no banco** (Row Level Security): quem não está aprovado não lê nada, e só líderes e administradores alteram músicas, repertórios e escalas.
-- As colunas usam `snake_case`; o `SupabaseProvider` converte para `camelCase`.
-- `supabase/dev/open_policies_for_prototyping.sql` libera o acesso anônimo apenas para testes locais. **Não use em produção.**
+### 2. Usar a `DATABASE_URL` na sua máquina
+```bash
+npm i -g vercel
+vercel link              # associa a pasta ao projeto da Vercel
+vercel env pull .env.local
+```
+O arquivo `.env.local` fica fora do Git (veja `.gitignore`). Nunca coloque valores reais no `.env.example`.
 
-## Deploy estático (modo demonstração)
+### 3. Criar as tabelas (migrations)
+```bash
+npm run db:migrate
+```
+As migrations ficam em `src/db/migrations/` e são aplicadas **manualmente**, nunca durante o deploy. Ao alterar o schema:
+```bash
+npm run db:generate      # gera o SQL da mudança, revise antes de aplicar
+npm run db:migrate
+```
 
-É uma SPA estática (`dist/`). Inclui `vercel.json` e `public/_redirects` (Netlify) com fallback de rotas para `index.html`.
+### 4. Dados de exemplo (opcional, só desenvolvimento)
+```bash
+npm run db:seed
+```
+Carrega 15 músicas, 8 integrantes, 5 eventos com repertório, 3 ensaios, 3 escalas e 10 notificações. O seed recusa rodar em produção (`VERCEL_ENV=production`) e em um banco que já tem dados (use `-- --reset` para apagar tudo e recriar). Para criar também um administrador, defina `SEED_ADMIN_EMAIL` e `SEED_ADMIN_PASSWORD` no `.env.local`.
+
+### 5. Ver os dados
+```bash
+npm run db:studio        # Drizzle Studio em https://local.drizzle.studio
+```
+Também dá para usar o **SQL Editor** do Neon (painel da Vercel → Storage → o banco → *Open in Neon*).
+
+## Deploy na Vercel
+
+1. Importe o repositório na Vercel (**Add New… → Project**). O framework **Vite** é detectado; build `npm run build`, saída `dist`. O `vercel.json` já envia `/api/*` para a função da API e as demais rotas para o site.
+2. Crie e conecte o banco Neon (passo 1 acima).
+3. **Arquivos:** em **Storage → Create → Blob**, crie um *Blob store* com acesso **público** e conecte ao projeto. A Vercel cria `BLOB_READ_WRITE_TOKEN`. Sem ele, o site funciona, mas o envio de fotos e capas mostra "Armazenamento de arquivos não configurado".
+4. Recomendado: em **Settings → Functions → Function Region**, escolha a mesma região do banco (ex.: São Paulo, `gru1`) para respostas mais rápidas.
+5. Opcional: em **Settings → Environment Variables**, defina `ADMIN_EMAIL` com o seu e-mail para que só você possa criar a conta de administrador.
+6. Na sua máquina, com a `DATABASE_URL` de produção no `.env.local`, rode `npm run db:migrate`.
+7. Faça o deploy e abra o site. **Crie a sua conta: a primeira vira administrador.**
+
+Depois, a cada mudança no schema: `npm run db:generate` → revise o SQL → `npm run db:migrate` → deploy.
+
+### Trazer a equipe
+- **Convite:** cadastre o integrante em **Equipe** com o e-mail dele, clique em **Administração → Convidar** e depois em **⋯ → Gerar senha temporária**. Envie a senha por um canal privado; a pessoa entra e troca a senha em **Configurações**.
+- **Cadastro livre:** a pessoa cria conta no site e aparece em **Administração → Aguardando aprovação**. Aprove e defina o nível de acesso.
+- **Esqueceu a senha?** O administrador gera uma senha temporária em **⋯ → Gerar senha temporária** (as sessões antigas da pessoa são encerradas).
+
+### Variáveis de ambiente
+
+| Variável | Onde | Obrigatória | Descrição |
+| --- | --- | --- | --- |
+| `DATABASE_URL` | Servidor | Sim (produção) | Conexão com o Neon, criada pela integração |
+| `BLOB_READ_WRITE_TOKEN` | Servidor | Para upload | Criada ao conectar o Blob store |
+| `ADMIN_EMAIL` | Servidor | Não | Restringe quem cria a primeira conta de administrador |
+| `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD` | Local | Não | Administrador criado pelo seed de desenvolvimento |
+| `VITE_DATA_PROVIDER` | Build | Não | `demo` gera a versão de demonstração sem banco |
+
+## Modo demonstração
+
+`npm run build:demo` gera um site estático sem banco: os dados fictícios ficam no `localStorage` do navegador, sem login, com troca de perfil em Configurações para testar os níveis de acesso. As datas são geradas em relação ao dia atual. Inclui `public/_redirects` para hospedagens estáticas.
 
 ## Testes
 
-`npm run test` cobre a lógica crítica:
-- transposição de tons e acordes (G → G# → A → A# → B), com alinhamento preservado;
-- leitura de cifras (seções, acordes sobre a letra, ChordPro inline);
-- detecção de links do YouTube e Vimeo;
-- datas e semanas;
-- cálculo de preparação (ex.: 75%);
-- integridade referencial dos dados de demonstração.
+`npm run test` cobre:
+- transposição de tons e acordes, leitura de cifras, links do YouTube/Vimeo, datas e cálculo de preparação;
+- integridade dos dados de demonstração;
+- **API contra um PostgreSQL real em memória** (mesmas migrations e seed): login, primeiro administrador, aprovação, permissões no servidor, tentativa de elevar o próprio nível de acesso, validação (400), conflitos (409), 404, CSRF, favoritos pessoais, senha temporária, logout e upload sem Blob configurado.

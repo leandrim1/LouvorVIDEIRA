@@ -1,230 +1,58 @@
 /**
- * Domain model — espelha as tabelas do banco (ver supabase/migrations).
- * Datas são strings ISO: `date` = YYYY-MM-DD, `time` = HH:mm, timestamps = ISO completo.
+ * Modelo de domínio usado pelo frontend.
+ * As entidades são DERIVADAS do schema do banco (src/db/schema.ts): uma única fonte de verdade.
+ * Na API, datas trafegam como string: `date` = YYYY-MM-DD, `time` = HH:mm, timestamps = ISO completo.
  */
+import type * as schema from '../db/schema'
 
 export type ID = string
 
-export interface Timestamps {
-  createdAt: string
-  updatedAt: string
-}
+/** Converte o tipo do Drizzle para o formato JSON recebido da API (Date → string ISO) */
+type Serialized<T> = { [K in keyof T]: T[K] extends Date ? string : T[K] extends Date | null ? string | null : T[K] }
+type Row<T extends { $inferSelect: object }> = Serialized<T['$inferSelect']>
 
 /* ------------------------------------------------------------------ */
-/* Usuários, permissões e integrantes                                  */
+/* Enums                                                               */
 /* ------------------------------------------------------------------ */
 
-export type UserRole = 'admin' | 'leader' | 'member'
-
-export interface User extends Timestamps {
-  id: ID
-  /** Conta no Supabase Auth (null = convite ainda não aceito / modo demonstração) */
-  authUserId: ID | null
-  memberId: ID | null
-  name: string
-  email: string
-  role: UserRole
-  /** Acesso liberado pelo administrador */
-  approved: boolean
-}
-
-export type MemberRole =
-  | 'leader'
-  | 'vocal'
-  | 'backing_vocal'
-  | 'acoustic_guitar'
-  | 'electric_guitar'
-  | 'bass'
-  | 'keys'
-  | 'drums'
-  | 'percussion'
-  | 'sound'
-  | 'media'
-  | 'other'
-
-export type VoiceType = 'soprano' | 'mezzo' | 'contralto' | 'tenor' | 'baritone' | 'bass' | 'none'
-
-export interface Member extends Timestamps {
-  id: ID
-  name: string
-  photoUrl: string | null
-  roles: MemberRole[]
-  instrument: string
-  voice: VoiceType
-  phone: string
-  email: string
-  notes: string
-  active: boolean
-}
+export type UserRole = (typeof schema.userRole.enumValues)[number]
+export type MemberRole = (typeof schema.memberRole.enumValues)[number]
+export type VoiceType = (typeof schema.voiceType.enumValues)[number]
+export type EventType = (typeof schema.eventType.enumValues)[number]
+export type RepertoireStatus = (typeof schema.repertoireStatus.enumValues)[number]
+export type PreparationStatus = (typeof schema.preparationStatus.enumValues)[number]
+export type SongVideoType = (typeof schema.songVideoType.enumValues)[number]
+export type SongLinkType = (typeof schema.songLinkType.enumValues)[number]
+export type NotificationType = (typeof schema.notificationType.enumValues)[number]
+export type FileKind = (typeof schema.fileKind.enumValues)[number]
 
 /* ------------------------------------------------------------------ */
-/* Músicas                                                             */
+/* Entidades (linhas das tabelas)                                      */
 /* ------------------------------------------------------------------ */
 
-export interface Song extends Timestamps {
-  id: ID
-  title: string
-  artist: string
-  album: string
-  composer: string
-  originalKey: string
-  teamKey: string
-  bpm: number | null
-  capo: number | null
-  tuning: string
-  timeSignature: string
-  lyrics: string
-  chords: string
-  notes: string
-  coverUrl: string | null
-  tags: string[]
+/** Usuário como a API expõe: sem o hash da senha, com `registered` (conta ativada) */
+export type User = Serialized<Omit<typeof schema.users.$inferSelect, 'passwordHash'>> & {
+  /** `false` = convite criado pelo administrador, a pessoa ainda não criou a senha */
+  registered: boolean
 }
+export type Member = Row<typeof schema.members>
+export type Song = Row<typeof schema.songs>
+export type SongVideo = Row<typeof schema.songVideos>
+export type SongLink = Row<typeof schema.songLinks>
+export type SongNote = Row<typeof schema.songNotes>
+export type Favorite = Row<typeof schema.favorites>
+export type SongView = Row<typeof schema.songViews>
+export type ChurchEvent = Row<typeof schema.events>
+export type Repertoire = Row<typeof schema.repertoires>
+export type RepertoireSong = Row<typeof schema.repertoireSongs>
+export type Schedule = Row<typeof schema.schedules>
+export type ScheduleMember = Row<typeof schema.scheduleMembers>
+export type Rehearsal = Row<typeof schema.rehearsals>
+export type SongPreparation = Row<typeof schema.songPreparations>
+export type AppNotification = Row<typeof schema.notifications>
+export type StoredFile = Row<typeof schema.files>
 
-export type SongVideoType = 'official' | 'study' | 'rehearsal' | 'live' | 'other'
-
-export interface SongVideo {
-  id: ID
-  songId: ID
-  type: SongVideoType
-  title: string
-  url: string
-  createdAt: string
-}
-
-export type SongLinkType = 'youtube' | 'spotify' | 'apple_music' | 'cifraclub' | 'deezer' | 'other'
-
-export interface SongLink {
-  id: ID
-  songId: ID
-  type: SongLinkType
-  label: string
-  url: string
-  createdAt: string
-}
-
-export interface SongNote {
-  id: ID
-  songId: ID
-  authorId: ID | null
-  content: string
-  createdAt: string
-}
-
-export interface Favorite {
-  id: ID
-  userId: ID
-  songId: ID
-  createdAt: string
-}
-
-export interface SongView {
-  id: ID
-  userId: ID
-  songId: ID
-  viewedAt: string
-}
-
-/* ------------------------------------------------------------------ */
-/* Eventos, repertórios, escalas e ensaios                             */
-/* ------------------------------------------------------------------ */
-
-export type EventType =
-  | 'service'
-  | 'rehearsal'
-  | 'special'
-  | 'conference'
-  | 'vigil'
-  | 'communion'
-  | 'other'
-
-export interface ChurchEvent extends Timestamps {
-  id: ID
-  title: string
-  type: EventType
-  date: string
-  startTime: string
-  endTime: string | null
-  location: string
-  description: string
-}
-
-export type RepertoireStatus = 'draft' | 'published'
-
-export interface Repertoire extends Timestamps {
-  id: ID
-  eventId: ID
-  name: string
-  description: string
-  notes: string
-  status: RepertoireStatus
-  createdBy: ID | null
-}
-
-export interface RepertoireSong {
-  id: ID
-  repertoireId: ID
-  songId: ID
-  position: number
-  key: string
-  leadVocalId: ID | null
-  instrumentation: string
-  notes: string
-}
-
-export interface Schedule extends Timestamps {
-  id: ID
-  eventId: ID
-  notes: string
-}
-
-export interface ScheduleMember {
-  id: ID
-  scheduleId: ID
-  memberId: ID
-  role: MemberRole
-}
-
-export interface Rehearsal extends Timestamps {
-  id: ID
-  eventId: ID
-  repertoireId: ID | null
-  notes: string
-}
-
-export type PreparationStatus = 'not_studied' | 'studying' | 'ready'
-
-export interface PreparationChecklist {
-  videoWatched: boolean
-  chordsStudied: boolean
-  keyConfirmed: boolean
-  rehearsed: boolean
-}
-
-export interface SongPreparation extends PreparationChecklist {
-  id: ID
-  repertoireSongId: ID
-  memberId: ID
-  status: PreparationStatus
-  updatedAt: string
-}
-
-/* ------------------------------------------------------------------ */
-/* Notificações                                                        */
-/* ------------------------------------------------------------------ */
-
-export type NotificationType = 'repertoire' | 'key_change' | 'rehearsal' | 'schedule' | 'song' | 'system'
-
-export interface AppNotification {
-  id: ID
-  /** null = notificação para toda a equipe */
-  userId: ID | null
-  type: NotificationType
-  title: string
-  message: string
-  link: string | null
-  readBy: ID[]
-  createdAt: string
-}
+export type PreparationChecklist = Pick<SongPreparation, 'videoWatched' | 'chordsStudied' | 'keyConfirmed' | 'rehearsed'>
 
 /* ------------------------------------------------------------------ */
 /* Agregados (view models montados pelos services)                     */
