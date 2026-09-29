@@ -1,17 +1,19 @@
 import { Link } from 'react-router-dom'
-import { ChevronRight, Moon, Sun } from 'lucide-react'
+import { ChevronRight, LogOut, Moon, Sun } from 'lucide-react'
+import { useAuth } from '@/contexts/auth'
 import { useSession } from '@/contexts/session'
 import { useTheme } from '@/contexts/theme'
 import { useNotifications } from '@/hooks/useData'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { USER_ROLE_LABELS } from '@/lib/constants'
 import { MORE_NAV } from '@/lib/navigation'
-import { Avatar, Switch } from '@/components/ui'
+import { Avatar, Button, Switch } from '@/components/ui'
 
 export default function MorePage() {
   useDocumentTitle('Mais')
   const { user, member, can } = useSession()
   const { resolvedTheme, setTheme } = useTheme()
+  const { mode, signOut } = useAuth()
   const { data: notifications = [] } = useNotifications()
   const unread = notifications.filter((n) => !n.read).length
 
@@ -56,6 +58,11 @@ export default function MorePage() {
           </div>
         </div>
       </div>
+      {mode === 'supabase' && (
+        <Button variant="danger-ghost" size="lg" className="w-full" leftIcon={<LogOut />} onClick={() => void signOut()}>
+          Sair da conta
+        </Button>
+      )}
     </div>
   )
 }

@@ -23,7 +23,7 @@ npm run test       # testes unitários (Vitest)
 npm run lint       # oxlint
 ```
 
-Sem nenhuma configuração, o app roda em **modo local**: os dados de demonstração (18 músicas, 12 integrantes, 7 repertórios, 5 ensaios, 14 eventos, escalas e notificações) ficam no `localStorage` do navegador. As datas são geradas **em relação ao dia atual**, então sempre há um "próximo culto" no domingo seguinte.
+Sem nenhuma configuração, o app roda em **modo demonstração**: os dados de demonstração (18 músicas, 12 integrantes, 7 repertórios, 5 ensaios, 14 eventos, escalas e notificações) ficam no `localStorage` do navegador. As datas são geradas **em relação ao dia atual**, então sempre há um "próximo culto" no domingo seguinte.
 
 > Letras, cifras, artistas e integrantes são fictícios. Os vídeos de estudo são *pads* de ensaio públicos do YouTube, um por tonalidade.
 
@@ -84,25 +84,56 @@ src/
 - **Revalidação automática.** Cada escrita emite quais tabelas mudaram. As consultas que dependem delas recarregam sozinhas, seja nesta aba, em outra aba ou via Supabase Realtime.
 - **Componentes pedidos:** `SongCard`, `RepertoireCard`, `MemberCard`, `EventCard`, `SongPlayer`, `SongLyrics`, `SongChords`, `KeySelector`, `MusicStatus`, `ScheduleCard`, `Calendar`, `SearchBar`, `Modal`, `Drawer`, `Toast`, `Dropdown`, `Tabs`, `EmptyState`, `LoadingState`, `ConfirmationDialog`.
 
-## Integração com Supabase
+## Colocar no ar com login real (Supabase + Vercel)
 
-A troca de backend não exige reescrever a aplicação, só configurar o provedor:
+Sem configuração, o app roda em **modo demonstração** (dados fictícios, sem login). Para a equipe usar de verdade, com login, dados compartilhados e um administrador real, siga os passos abaixo. Supabase e Vercel têm planos gratuitos.
 
-1. Crie um projeto no Supabase e execute `supabase/migrations/0001_initial_schema.sql` no SQL Editor. Ele cria as tabelas `users`, `members`, `songs`, `repertoires`, `repertoire_songs`, `events`, `schedules`, `schedule_members`, `song_videos`, `song_links`, `song_notes`, `rehearsals`, `favorites`, `song_views`, `song_preparations` e `notifications`, com chaves estrangeiras, índices, triggers, **RLS por nível de acesso** e Realtime.
-2. Copie `.env.example` para `.env` e preencha:
-   ```env
-   VITE_DATA_PROVIDER=supabase
-   VITE_SUPABASE_URL=https://SEU-PROJETO.supabase.co
-   VITE_SUPABASE_ANON_KEY=sua-chave-anon
-   ```
-3. Para testar antes de integrar o login, execute também `supabase/dev/open_policies_for_prototyping.sql` (libera o papel `anon`; **não use em produção**) e clique em **Configurações → Restaurar demonstração** para popular o banco.
-4. Para produção, integre o Supabase Auth: vincule `users.auth_user_id` ao `auth.uid()` e resolva o usuário atual no `SessionProvider`. As políticas RLS já usam `auth.uid()`.
+### 1. Banco de dados e login (Supabase)
+1. Crie uma conta em [supabase.com](https://supabase.com) → **New project** (região *South America (São Paulo)*). Guarde a senha do banco.
+2. No menu do projeto, abra **SQL Editor** → **New query**, cole todo o conteúdo de [`supabase/setup.sql`](supabase/setup.sql) e clique em **Run**. Isso cria as tabelas, as permissões e a regra *"a primeira conta criada vira administrador"*.
+3. Abra **Project Settings → API** e copie:
+   - **Project URL** (ex.: `https://abcd1234.supabase.co`)
+   - chave **anon public**. Ela pode ficar no site; **nunca** use a chave `service_role` no app.
 
-As colunas do banco usam `snake_case`. O `SupabaseProvider` converte para `camelCase` automaticamente. Os IDs de demonstração são UUIDs válidos.
+### 2. Hospedagem (Vercel)
+1. Entre em [vercel.com](https://vercel.com) com sua conta do GitHub → **Add New… → Project** → importe o repositório `LouvorVIDEIRA`.
+2. O framework **Vite** é detectado sozinho (build `npm run build`, saída `dist`).
+3. Em **Environment Variables**, adicione:
+   | Nome | Valor |
+   | --- | --- |
+   | `VITE_DATA_PROVIDER` | `supabase` |
+   | `VITE_SUPABASE_URL` | a Project URL |
+   | `VITE_SUPABASE_ANON_KEY` | a chave anon public |
+4. Clique em **Deploy**. Ao final, a Vercel mostra o endereço do site (ex.: `https://louvor-videira.vercel.app`).
 
-## Deploy
+### 3. Ligar o site ao login
+No Supabase, abra **Authentication → URL Configuration**:
+- **Site URL**: o endereço da Vercel (ex.: `https://louvor-videira.vercel.app`)
+- **Redirect URLs**: adicione `https://louvor-videira.vercel.app/**`
 
-É uma SPA estática (`dist/`). Já inclui `vercel.json` e `public/_redirects` (Netlify) com fallback de rotas para `index.html`.
+Sem isso, os links de confirmação de e-mail e de nova senha apontam para `localhost`.
+
+### 4. Criar o administrador
+1. Abra o site → **Criar conta** com seu nome, e-mail e senha.
+2. Confirme o e-mail pelo link recebido e entre. **A primeira conta criada é automaticamente o Administrador.**
+3. Pronto: o banco começa vazio, sem dados fictícios. Cadastre músicas, equipe e repertórios.
+
+### 5. Trazer a equipe
+- **Convite (recomendado):** cadastre o integrante em **Equipe** com o e-mail dele e clique em **Administração → Convidar**. Quando a pessoa criar conta com esse e-mail, o acesso é liberado sozinho.
+- **Cadastro livre:** a pessoa cria conta no site e aparece em **Administração → Aguardando aprovação**. Aprove e defina o nível (Administrador, Líder ou Integrante).
+- Em **Administração** também dá para revogar ou remover o acesso de alguém.
+
+> O Supabase gratuito envia poucos e-mails por hora. Se a equipe for grande, cadastre as pessoas aos poucos ou configure um SMTP próprio em **Authentication → Emails**.
+
+### Como funciona por dentro
+- `supabase/setup.sql` = `migrations/0001_initial_schema.sql` (tabelas, índices, Realtime) + `migrations/0002_auth_and_first_admin.sql` (primeiro administrador, aprovação, RLS).
+- As permissões são aplicadas **no banco** (Row Level Security): quem não está aprovado não lê nada, e só líderes e administradores alteram músicas, repertórios e escalas.
+- As colunas usam `snake_case`; o `SupabaseProvider` converte para `camelCase`.
+- `supabase/dev/open_policies_for_prototyping.sql` libera o acesso anônimo apenas para testes locais. **Não use em produção.**
+
+## Deploy estático (modo demonstração)
+
+É uma SPA estática (`dist/`). Inclui `vercel.json` e `public/_redirects` (Netlify) com fallback de rotas para `index.html`.
 
 ## Testes
 

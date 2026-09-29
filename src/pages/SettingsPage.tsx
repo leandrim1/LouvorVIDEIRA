@@ -1,6 +1,8 @@
 import { useEffect, type ReactNode } from 'react'
 import { useLocation } from 'react-router-dom'
 import { Database, Download, Monitor, Moon, RotateCcw, Sun, UserCog } from 'lucide-react'
+import { AccountCard } from '@/components/auth/AccountCard'
+import { useAuth } from '@/contexts/auth'
 import { useConfirm } from '@/contexts/confirm'
 import { useSession } from '@/contexts/session'
 import { useTheme, type ThemePreference } from '@/contexts/theme'
@@ -23,6 +25,7 @@ const THEMES: Array<{ value: ThemePreference; label: string; icon: ReactNode; de
 export default function SettingsPage() {
   useDocumentTitle('Configurações')
   const { theme, setTheme } = useTheme()
+  const { mode } = useAuth()
   const { user, switchUser } = useSession()
   const { data: users = [] } = useUsers()
   const confirm = useConfirm()
@@ -98,6 +101,9 @@ export default function SettingsPage() {
           </CardBody>
         </Card>
 
+        {mode === 'supabase' ? (
+          <AccountCard id="perfil" className="scroll-mt-24 lg:col-span-2" />
+        ) : (
         <Card id="perfil" className="scroll-mt-24 lg:col-span-2">
           <CardHeader title="Perfil de acesso (demonstração)" description="Troque de usuário para testar os níveis Administrador, Líder e Integrante" icon={<UserCog />} />
           <CardBody>
@@ -124,19 +130,21 @@ export default function SettingsPage() {
             </div>
           </CardBody>
         </Card>
+        )}
 
         <Card className="lg:col-span-2">
           <CardHeader title="Dados" description={isSupabaseConfigured ? 'Conectado ao Supabase' : 'Armazenados localmente neste navegador'} icon={<Database />} />
           <CardBody className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <p className="max-w-xl text-sm text-ink-2">
               {isSupabaseConfigured
-                ? 'Os dados estão sendo lidos e gravados no Supabase. Restaurar a demonstração apaga as tabelas e insere os dados fictícios.'
+                ? 'Os dados da equipe ficam no banco de dados na nuvem e são compartilhados com todos os integrantes aprovados.'
                 : 'O modo local usa dados de demonstração salvos no navegador. Configure VITE_DATA_PROVIDER=supabase para usar um banco real.'}
             </p>
             <div className="flex flex-wrap gap-2">
               <Button variant="secondary" leftIcon={<Download />} onClick={() => void exportData.mutate()} loading={exportData.isPending}>
                 Exportar backup
               </Button>
+              {!isSupabaseConfigured && (
               <Button
                 variant="danger-ghost"
                 leftIcon={<RotateCcw />}
@@ -153,6 +161,7 @@ export default function SettingsPage() {
               >
                 Restaurar demonstração
               </Button>
+              )}
             </div>
           </CardBody>
         </Card>

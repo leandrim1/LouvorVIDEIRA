@@ -18,10 +18,14 @@ export type UserRole = 'admin' | 'leader' | 'member'
 
 export interface User extends Timestamps {
   id: ID
+  /** Conta no Supabase Auth (null = convite ainda não aceito / modo demonstração) */
+  authUserId: ID | null
   memberId: ID | null
   name: string
   email: string
   role: UserRole
+  /** Acesso liberado pelo administrador */
+  approved: boolean
 }
 
 export type MemberRole =

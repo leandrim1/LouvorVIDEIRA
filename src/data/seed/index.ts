@@ -156,10 +156,12 @@ export function createSeed(now = new Date()): DatabaseState {
   const userRoles: Record<number, User['role']> = { 0: 'admin', 9: 'leader', 5: 'leader' }
   const users: User[] = members.map((m, i) => ({
     id: SEED_IDS.user(i + 1),
+    authUserId: null,
     memberId: m.id,
     name: m.name,
     email: m.email,
     role: userRoles[i] ?? 'member',
+    approved: true,
     ...ts,
   }))
 

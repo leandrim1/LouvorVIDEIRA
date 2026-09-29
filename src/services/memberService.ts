@@ -72,12 +72,35 @@ export const userService = {
     const now = new Date().toISOString()
     return db.insert('users', {
       id: generateId(),
+      authUserId: null,
       memberId: member.id,
       name: member.name,
-      email: member.email,
+      email: member.email.trim().toLowerCase(),
       role,
+      approved: true,
       createdAt: now,
       updatedAt: now,
     })
+  },
+
+  /** Libera (ou revoga) o acesso de quem criou conta */
+  async setApproved(id: string, approved: boolean): Promise<User> {
+    const users = await db.list('users')
+    const target = users.find((u) => u.id === id)
+    if (!approved && target?.role === 'admin' && users.filter((u) => u.role === 'admin' && u.approved).length <= 1) {
+      throw new Error('É necessário manter pelo menos um administrador com acesso.')
+    }
+    return db.update('users', id, { approved, updatedAt: new Date().toISOString() })
+  },
+
+  async linkMember(id: string, memberId: string | null): Promise<User> {
+    return db.update('users', id, { memberId, updatedAt: new Date().toISOString() })
+  },
+
+  /** Remove o acesso (a conta de login continua existindo no Supabase Auth) */
+  async remove(id: string): Promise<void> {
+    await db.removeWhere('favorites', { userId: id })
+    await db.removeWhere('song_views', { userId: id })
+    await db.remove('users', id)
   },
 }

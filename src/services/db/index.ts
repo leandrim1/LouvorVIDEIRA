@@ -1,14 +1,11 @@
+import { isSupabaseConfigured } from '../config'
+import { getSupabase } from '../supabaseClient'
 import { LocalProvider } from './localProvider'
 import type { DataProvider } from './types'
 
 export * from './types'
 export { onChange, emitChange } from './changes'
-
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
-const PROVIDER = (import.meta.env.VITE_DATA_PROVIDER as string | undefined) ?? 'local'
-
-export const isSupabaseConfigured = PROVIDER === 'supabase' && Boolean(SUPABASE_URL && SUPABASE_ANON_KEY)
+export { isSupabaseConfigured }
 
 let providerPromise: Promise<DataProvider> | null = null
 
@@ -20,9 +17,8 @@ let providerPromise: Promise<DataProvider> | null = null
 export function getProvider(): Promise<DataProvider> {
   if (!providerPromise) {
     providerPromise = isSupabaseConfigured
-      ? Promise.all([import('@supabase/supabase-js'), import('./supabaseProvider')]).then(
-          ([{ createClient }, { SupabaseProvider }]) =>
-            new SupabaseProvider(createClient(SUPABASE_URL!, SUPABASE_ANON_KEY!)),
+      ? Promise.all([getSupabase(), import('./supabaseProvider')]).then(
+          ([client, { SupabaseProvider }]) => new SupabaseProvider(client),
         )
       : Promise.resolve(new LocalProvider())
   }

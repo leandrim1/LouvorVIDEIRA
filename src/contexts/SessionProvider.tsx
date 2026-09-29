@@ -4,23 +4,31 @@ import { readStorage, writeStorage } from '@/hooks/useLocalStorage'
 import { useQuery } from '@/hooks/useQuery'
 import { hasPermission, type Permission } from '@/lib/permissions'
 import { db } from '@/services'
+import { useAuth } from './auth'
 import { SessionContext } from './session'
 
 const SESSION_KEY = 'session:userId'
 
 /**
- * Sessão da aplicação. No modo local, o usuário ativo é escolhido nas
- * Configurações (para demonstrar os níveis de acesso). Ao integrar o
- * Supabase Auth, basta resolver `userId` a partir de `supabase.auth.getUser()`.
+ * Sessão da aplicação.
+ * - Login real (Supabase): o usuário é o cadastro vinculado à conta autenticada.
+ * - Demonstração: o perfil ativo é escolhido em Configurações para testar os níveis de acesso.
  */
 export function SessionProvider({ children }: { children: ReactNode }) {
-  const [userId, setUserId] = useState<string>(() => readStorage(SESSION_KEY, DEFAULT_USER_ID))
+  const { mode, authUser } = useAuth()
+  const [demoUserId, setDemoUserId] = useState<string>(() => readStorage(SESSION_KEY, DEFAULT_USER_ID))
 
-  const { data, isLoading } = useQuery(
-    `session:${userId}`,
+  const key = mode === 'supabase' ? (authUser ? `session:auth:${authUser.id}` : null) : `session:${demoUserId}`
+  const { data, isLoading, refetch } = useQuery(
+    key,
     async () => {
+      if (mode === 'supabase') {
+        const [user] = await db.list('users', { authUserId: authUser!.id })
+        const member = user?.approved && user.memberId ? await db.get('members', user.memberId) : null
+        return { user: user ?? null, member }
+      }
       const users = await db.list('users')
-      const user = users.find((u) => u.id === userId) ?? users.find((u) => u.role === 'admin') ?? users[0] ?? null
+      const user = users.find((u) => u.id === demoUserId) ?? users.find((u) => u.role === 'admin') ?? users[0] ?? null
       const member = user?.memberId ? await db.get('members', user.memberId) : null
       return { user, member }
     },
@@ -29,15 +37,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const switchUser = useCallback((id: string) => {
     writeStorage(SESSION_KEY, id)
-    setUserId(id)
+    setDemoUserId(id)
   }, [])
 
   const user = data?.user ?? null
-  const can = useCallback((permission: Permission) => hasPermission(user?.role, permission), [user?.role])
+  const approved = Boolean(user?.approved)
+  const pending = mode === 'supabase' && Boolean(authUser) && !isLoading && !approved
+  const can = useCallback((permission: Permission) => approved && hasPermission(user?.role, permission), [approved, user?.role])
 
   const value = useMemo(
-    () => ({ user, member: data?.member ?? null, isLoading, can, switchUser }),
-    [user, data?.member, isLoading, can, switchUser],
+    () => ({ user, member: data?.member ?? null, isLoading, pending, can, switchUser, refresh: refetch }),
+    [user, data?.member, isLoading, pending, can, switchUser, refetch],
   )
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>
 }

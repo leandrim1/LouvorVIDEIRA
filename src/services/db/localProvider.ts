@@ -18,6 +18,11 @@ function load(): DatabaseState {
       for (const table of TABLES) {
         if (!Array.isArray(parsed[table])) (parsed as Record<string, unknown>)[table] = seed[table]
       }
+      // Migração: bancos locais antigos não tinham aprovação de usuários
+      for (const user of parsed.users ?? []) {
+        user.approved ??= true
+        user.authUserId ??= null
+      }
       return parsed as DatabaseState
     }
   } catch {

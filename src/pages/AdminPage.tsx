@@ -1,5 +1,7 @@
 import { Link } from 'react-router-dom'
-import { CalendarPlus, Check, ClipboardList, ListPlus, Lock, Mic2, Music, ShieldCheck, UserPlus, Users, X } from 'lucide-react'
+import { CalendarPlus, Check, ClipboardList, Hourglass, ListPlus, Lock, Mic2, MoreHorizontal, Music, ShieldCheck, ShieldOff, Trash2, UserCheck, UserPlus, Users, X } from 'lucide-react'
+import { useAuth } from '@/contexts/auth'
+import { useConfirm } from '@/contexts/confirm'
 import { useSession } from '@/contexts/session'
 import { useMembers, useUsers } from '@/hooks/useData'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
@@ -7,8 +9,8 @@ import { useMutation } from '@/hooks/useMutation'
 import { USER_ROLE_LABELS } from '@/lib/constants'
 import { PERMISSION_LABELS, ROLE_PERMISSIONS, type Permission } from '@/lib/permissions'
 import { userService } from '@/services'
-import type { UserRole } from '@/types'
-import { Avatar, Badge, Button, Card, CardBody, CardHeader, EmptyState, PageHeader, Select, SkeletonList } from '@/components/ui'
+import type { User, UserRole } from '@/types'
+import { Avatar, Badge, Button, Card, CardBody, CardHeader, Dropdown, EmptyState, IconButton, PageHeader, Select, SkeletonList } from '@/components/ui'
 
 const ROLES: UserRole[] = ['admin', 'leader', 'member']
 
@@ -21,27 +23,56 @@ export default function AdminPage() {
     success: (u) => `${u.name} agora é ${USER_ROLE_LABELS[u.role]}`,
     error: 'Não foi possível alterar a permissão',
   })
+  const { mode } = useAuth()
+  const confirm = useConfirm()
   const createAccess = useMutation((memberId: string) => userService.createForMember(members.find((m) => m.id === memberId)!, 'member'), {
-    success: 'Acesso criado',
+    success: mode === 'supabase' ? 'Convite criado: a pessoa já pode criar conta com este e-mail' : 'Acesso criado',
+    error: 'Não foi possível criar o acesso',
   })
+  const setApproved = useMutation(({ id, approved }: { id: string; approved: boolean }) => userService.setApproved(id, approved), {
+    success: (u) => (u.approved ? `Acesso de ${u.name} liberado` : `Acesso de ${u.name} revogado`),
+    error: 'Não foi possível alterar o acesso',
+  })
+  const linkMember = useMutation(({ id, memberId }: { id: string; memberId: string | null }) => userService.linkMember(id, memberId), {
+    success: 'Integrante vinculado',
+  })
+  const removeUser = useMutation((id: string) => userService.remove(id), { success: 'Acesso removido' })
+
+  const onRemove = async (u: User) => {
+    const ok = await confirm({
+      title: `Remover o acesso de ${u.name}?`,
+      description: 'A pessoa não conseguirá mais usar o sistema. O cadastro dela na Equipe continua.',
+      confirmLabel: 'Remover acesso',
+      danger: true,
+    })
+    if (ok) void removeUser.mutate(u.id)
+  }
 
   if (!can('admin:access')) {
     return (
       <EmptyState
         icon={<Lock />}
         title="Área restrita a administradores"
-        description="Troque para um perfil de administrador em Configurações para acessar."
+        description={
+          mode === 'demo'
+            ? 'Troque para um perfil de administrador em Configurações para acessar.'
+            : 'Peça a um administrador da equipe para alterar seu nível de acesso.'
+        }
         className="mt-10"
         action={
-          <Link to="/configuracoes#perfil" className="text-sm font-semibold text-brand-600 hover:underline dark:text-brand-300">
-            Ir para Configurações
-          </Link>
+          mode === 'demo' && (
+            <Link to="/configuracoes#perfil" className="text-sm font-semibold text-brand-600 hover:underline dark:text-brand-300">
+              Ir para Configurações
+            </Link>
+          )
         }
       />
     )
   }
 
   const membersWithoutAccess = members.filter((m) => !users.some((u) => u.memberId === m.id))
+  const pendingUsers = users.filter((u) => !u.approved && u.authUserId)
+  const activeUsers = users.filter((u) => u.approved || !u.authUserId)
   const shortcuts = [
     { to: '/musicas/nova', label: 'Nova música', icon: <Music /> },
     { to: '/repertorios/novo', label: 'Novo repertório', icon: <ListPlus /> },
@@ -69,55 +100,143 @@ export default function AdminPage() {
       </div>
 
       <div className="grid gap-6 xl:grid-cols-5">
-        <Card className="xl:col-span-3">
-          <CardHeader title="Usuários e permissões" description={`${users.length} usuários com acesso`} />
-          <CardBody className="pt-3">
-            {isLoading ? (
-              <SkeletonList count={4} />
-            ) : (
-              <ul className="divide-y divide-line">
-                {users.map((u) => {
-                  const member = members.find((m) => m.id === u.memberId)
-                  return (
+        <div className="space-y-6 xl:col-span-3">
+          {pendingUsers.length > 0 && (
+            <Card className="border-brand-300 dark:border-brand-500/40">
+              <CardHeader
+                title="Aguardando aprovação"
+                description="Pessoas que criaram conta no site"
+                icon={<Hourglass />}
+                action={<Badge tone="brand">{pendingUsers.length}</Badge>}
+              />
+              <CardBody className="pt-3">
+                <ul className="divide-y divide-line">
+                  {pendingUsers.map((u) => (
                     <li key={u.id} className="flex flex-wrap items-center gap-3 py-3">
-                      <Avatar name={u.name} src={member?.photoUrl} size="sm" />
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-semibold text-ink">
-                          {u.name} {u.id === me?.id && <span className="text-xs font-medium text-ink-3">(você)</span>}
-                        </p>
+                      <Avatar name={u.name} size="sm" />
+                      <div className="min-w-0 flex-1 basis-44">
+                        <p className="truncate text-sm font-semibold text-ink">{u.name}</p>
                         <p className="truncate text-xs text-ink-3">{u.email}</p>
                       </div>
-                      <div className="w-40">
-                        <Select
-                          aria-label={`Nível de acesso de ${u.name}`}
-                          value={u.role}
-                          onChange={(e) => void updateRole.mutate({ id: u.id, role: e.target.value as UserRole })}
-                          options={ROLES.map((r) => ({ value: r, label: USER_ROLE_LABELS[r] }))}
-                        />
+                      <div className="flex gap-2">
+                        <Button size="sm" variant="danger-ghost" onClick={() => void onRemove(u)}>
+                          Recusar
+                        </Button>
+                        <Button size="sm" leftIcon={<UserCheck />} onClick={() => void setApproved.mutate({ id: u.id, approved: true })}>
+                          Aprovar
+                        </Button>
                       </div>
-                    </li>
-                  )
-                })}
-              </ul>
-            )}
-            {membersWithoutAccess.length > 0 && (
-              <div className="mt-4 rounded-2xl border border-dashed border-line-strong p-4">
-                <p className="mb-2 text-sm font-semibold text-ink">Integrantes sem acesso</p>
-                <ul className="space-y-2">
-                  {membersWithoutAccess.map((m) => (
-                    <li key={m.id} className="flex items-center gap-3">
-                      <Avatar name={m.name} src={m.photoUrl} size="xs" />
-                      <span className="flex-1 truncate text-sm text-ink-2">{m.name}</span>
-                      <Button size="xs" variant="soft" leftIcon={<UserPlus />} onClick={() => void createAccess.mutate(m.id)}>
-                        Criar acesso
-                      </Button>
                     </li>
                   ))}
                 </ul>
-              </div>
-            )}
-          </CardBody>
-        </Card>
+              </CardBody>
+            </Card>
+          )}
+
+          <Card>
+            <CardHeader title="Usuários e permissões" description={`${activeUsers.length} usuários`} />
+            <CardBody className="pt-3">
+              {isLoading ? (
+                <SkeletonList count={4} />
+              ) : (
+                <ul className="divide-y divide-line">
+                  {activeUsers.map((u) => {
+                    const member = members.find((m) => m.id === u.memberId)
+                    const isMe = u.id === me?.id
+                    return (
+                      <li key={u.id} className="flex flex-wrap items-center gap-3 py-3">
+                        <Avatar name={u.name} src={member?.photoUrl} size="sm" />
+                        <div className="min-w-0 flex-1 basis-44">
+                          <p className="truncate text-sm font-semibold text-ink">
+                            {u.name} {isMe && <span className="text-xs font-medium text-ink-3">(você)</span>}
+                          </p>
+                          <p className="truncate text-xs text-ink-3">
+                            {u.email}
+                            {mode === 'supabase' && !u.authUserId && ' · convite enviado, conta ainda não criada'}
+                            {!u.approved && ' · acesso revogado'}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <div className="w-36">
+                            <Select
+                              aria-label={`Nível de acesso de ${u.name}`}
+                              value={u.role}
+                              onChange={(e) => void updateRole.mutate({ id: u.id, role: e.target.value as UserRole })}
+                              options={ROLES.map((r) => ({ value: r, label: USER_ROLE_LABELS[r] }))}
+                            />
+                          </div>
+                          {!isMe && (
+                            <Dropdown
+                              trigger={({ toggle, ...aria }) => (
+                                <IconButton label={`Mais ações para ${u.name}`} size="icon-sm" onClick={toggle} {...aria}>
+                                  <MoreHorizontal />
+                                </IconButton>
+                              )}
+                              items={[
+                                u.approved
+                                  ? { label: 'Revogar acesso', icon: <ShieldOff />, onSelect: () => void setApproved.mutate({ id: u.id, approved: false }) }
+                                  : { label: 'Liberar acesso', icon: <UserCheck />, onSelect: () => void setApproved.mutate({ id: u.id, approved: true }) },
+                                { label: 'Remover acesso', icon: <Trash2 />, onSelect: () => void onRemove(u), danger: true, separatorBefore: true },
+                              ]}
+                            />
+                          )}
+                        </div>
+                        <div className="w-full pl-11 sm:w-auto sm:pl-0">
+                          <label className="flex items-center gap-2 text-xs text-ink-3">
+                            <span className="shrink-0">Integrante:</span>
+                            <select
+                              value={u.memberId ?? ''}
+                              onChange={(e) => void linkMember.mutate({ id: u.id, memberId: e.target.value || null })}
+                              className="max-w-52 rounded-lg bg-surface-2 px-2 py-1 text-xs font-medium text-ink ring-1 ring-line ring-inset"
+                              aria-label={`Integrante vinculado a ${u.name}`}
+                            >
+                              <option value="">Nenhum</option>
+                              {members.map((m) => (
+                                <option key={m.id} value={m.id}>
+                                  {m.name}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        </div>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+              {membersWithoutAccess.length > 0 && (
+                <div className="mt-4 rounded-2xl border border-dashed border-line-strong p-4">
+                  <p className="text-sm font-semibold text-ink">Integrantes sem acesso</p>
+                  <p className="mb-3 text-xs text-ink-3">
+                    {mode === 'supabase'
+                      ? 'Convide pelo e-mail cadastrado na Equipe. Quando a pessoa criar conta com esse e-mail, o acesso é liberado automaticamente.'
+                      : 'Crie um acesso para o integrante.'}
+                  </p>
+                  <ul className="space-y-2">
+                    {membersWithoutAccess.map((m) => (
+                      <li key={m.id} className="flex items-center gap-3">
+                        <Avatar name={m.name} src={m.photoUrl} size="xs" />
+                        <span className="min-w-0 flex-1 truncate text-sm text-ink-2">
+                          {m.name}
+                          {m.email && <span className="text-ink-3"> · {m.email}</span>}
+                        </span>
+                        {m.email ? (
+                          <Button size="xs" variant="soft" leftIcon={<UserPlus />} onClick={() => void createAccess.mutate(m.id)}>
+                            {mode === 'supabase' ? 'Convidar' : 'Criar acesso'}
+                          </Button>
+                        ) : (
+                          <Link to={`/equipe?integrante=${m.id}`} className="text-xs font-semibold text-brand-600 hover:underline dark:text-brand-300">
+                            Cadastrar e-mail
+                          </Link>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </CardBody>
+          </Card>
+        </div>
 
         <Card className="xl:col-span-2">
           <CardHeader title="Níveis de acesso" description="O que cada perfil pode fazer" />

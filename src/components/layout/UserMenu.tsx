@@ -1,4 +1,5 @@
-import { Moon, Settings, ShieldCheck, Sun, UserCog } from 'lucide-react'
+import { LogOut, Moon, Settings, ShieldCheck, Sun, UserCog } from 'lucide-react'
+import { useAuth } from '@/contexts/auth'
 import { useSession } from '@/contexts/session'
 import { useTheme } from '@/contexts/theme'
 import { USER_ROLE_LABELS } from '@/lib/constants'
@@ -7,6 +8,7 @@ import { Avatar, Dropdown } from '@/components/ui'
 export function UserMenu() {
   const { user, member, can } = useSession()
   const { resolvedTheme, toggleTheme } = useTheme()
+  const { mode, signOut } = useAuth()
   const name = user?.name ?? 'Visitante'
 
   return (
@@ -31,8 +33,9 @@ export function UserMenu() {
           onSelect: toggleTheme,
         },
         { label: 'Configurações', icon: <Settings />, href: '/configuracoes' },
-        { label: 'Trocar perfil (demo)', icon: <UserCog />, href: '/configuracoes#perfil' },
+        { label: 'Trocar perfil (demo)', icon: <UserCog />, href: '/configuracoes#perfil', hidden: mode !== 'demo' },
         { label: 'Administração', icon: <ShieldCheck />, href: '/admin', hidden: !can('admin:access') },
+        { label: 'Sair', icon: <LogOut />, onSelect: () => void signOut(), hidden: mode !== 'supabase', separatorBefore: true, danger: true },
       ]}
     />
   )
