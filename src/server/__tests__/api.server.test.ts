@@ -27,7 +27,7 @@ describe('saúde e rotas', () => {
   it('GET /api/health confirma a conexão com o banco', async () => {
     const res = await call('GET', 'health')
     expect(res.status).toBe(200)
-    expect(res.data).toEqual({ status: 'ok', database: 'ok' })
+    expect(res.data).toEqual({ status: 'ok', database: 'ok', migrations: 'ok' })
   })
 
   it('rota inexistente retorna 404', async () => {

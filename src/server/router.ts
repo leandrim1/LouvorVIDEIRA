@@ -371,12 +371,22 @@ async function health(ctx: RequestContext) {
   if (ctx.method !== 'GET') throw methodNotAllowed()
   try {
     await ctx.db.execute(sql`select 1`)
-    return json({ status: 'ok', database: 'ok' })
   } catch (error) {
     console.error('[api] health: banco indisponível', error)
     return new Response(JSON.stringify({ data: { status: 'error', database: 'unavailable' } }), {
       status: 503,
       headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
     })
+  }
+  // Confere se a última migration (0001) foi aplicada
+  try {
+    await ctx.db.execute(sql`select status, email_verified from users limit 0`)
+    await ctx.db.execute(sql`select key from rate_limits limit 0`)
+    return json({ status: 'ok', database: 'ok', migrations: 'ok' })
+  } catch {
+    return new Response(
+      JSON.stringify({ data: { status: 'error', database: 'ok', migrations: 'pending', missing: '0001_email_verification.sql' } }),
+      { status: 503, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } },
+    )
   }
 }

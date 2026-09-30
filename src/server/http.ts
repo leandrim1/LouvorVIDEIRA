@@ -110,6 +110,13 @@ export function toErrorResponse(error: unknown): Response {
     return errorResponse(new ApiError(503, 'SERVICE_UNAVAILABLE', 'Banco de dados não configurado. Defina DATABASE_URL.'))
   }
   switch (pgErrorCode(error)) {
+    // Tabela ou coluna inexistente: o banco está sem alguma migration
+    case '42P01':
+    case '42703':
+      console.error('[api] banco desatualizado (migration pendente):', error)
+      return errorResponse(
+        new ApiError(503, 'SERVICE_UNAVAILABLE', 'O banco de dados está desatualizado. O administrador precisa aplicar as migrations pendentes.'),
+      )
     case '23505':
       return errorResponse(ApiError.conflict('Já existe um registro com estes dados.'))
     case '23503':
