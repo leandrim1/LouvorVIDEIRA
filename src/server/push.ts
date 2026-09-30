@@ -27,12 +27,33 @@ export interface PushConfig {
   subject: string
 }
 
+/** Lê a variável sem espaços, quebras de linha ou aspas coladas por engano no painel */
+function env(name: string): string {
+  return (process.env[name] ?? '').trim().replace(/^(['"])(.*)\1$/, '$2').trim()
+}
+
 export function pushConfig(): PushConfig | null {
-  const publicKey = process.env.VAPID_PUBLIC_KEY?.trim()
-  const privateKey = process.env.VAPID_PRIVATE_KEY?.trim()
-  const subject = process.env.VAPID_SUBJECT?.trim() || (process.env.APP_URL?.trim() ?? '')
+  const publicKey = env('VAPID_PUBLIC_KEY')
+  const privateKey = env('VAPID_PRIVATE_KEY')
+  const subject = env('VAPID_SUBJECT') || env('APP_URL')
   if (!publicKey || !privateKey || !subject) return null
   return { publicKey, privateKey, subject }
+}
+
+/**
+ * Situação da configuração VAPID, sem revelar valores: 'ok', 'not_configured'
+ * ou o motivo de a configuração ser inválida (chave com tamanho errado, subject fora do padrão…).
+ */
+export function pushConfigStatus(): string {
+  const config = pushConfig()
+  if (!config) return 'not_configured'
+  if (!/^(mailto:|https:\/\/)/.test(config.subject)) return 'invalid: VAPID_SUBJECT deve começar com mailto: ou https://'
+  try {
+    webpush.setVapidDetails(config.subject, config.publicKey, config.privateKey)
+  } catch (error) {
+    return `invalid: ${error instanceof Error ? error.message : 'chaves VAPID inválidas'}`
+  }
+  return 'ok'
 }
 
 /* ------------------------------------------------------------------ */
@@ -79,6 +100,8 @@ export type DeliveryStatus = 'SENT' | 'FAILED' | 'EXPIRED' | 'REMOVED'
 export interface DeliveryResult {
   subscriptionId: string
   status: DeliveryStatus
+  /** Resposta do serviço de push (FCM, Apple, Mozilla) quando o envio falha */
+  error?: string
 }
 
 async function sendOne(config: PushConfig, sub: Subscription, payload: PushPayload): Promise<{ status: DeliveryStatus; error?: string }> {
@@ -98,7 +121,9 @@ async function sendOne(config: PushConfig, sub: Subscription, payload: PushPaylo
     // 404/410: a inscrição não existe mais (app desinstalado, permissão removida, expirou)
     if (statusCode === 404 || statusCode === 410) return { status: 'EXPIRED', error: `HTTP ${statusCode}` }
     const message = error instanceof Error ? error.message : String(error)
-    return { status: 'FAILED', error: `${statusCode ? `HTTP ${statusCode}: ` : ''}${message}`.slice(0, 300) }
+    // O corpo da resposta explica o motivo (ex.: 403 "VAPID credentials ... do not correspond")
+    const body = String((error as { body?: unknown }).body ?? '').trim()
+    return { status: 'FAILED', error: `${statusCode ? `HTTP ${statusCode}: ` : ''}${body || message}`.slice(0, 300) }
   }
 }
 
@@ -136,5 +161,5 @@ export async function pushToUser(db: Database, userId: string, payload: PushPayl
   for (const { result } of results) {
     if (result.status === 'FAILED') console.error('[push] falha no envio:', result.error)
   }
-  return results.map(({ sub, result }) => ({ subscriptionId: sub.id, status: result.status }))
+  return results.map(({ sub, result }) => ({ subscriptionId: sub.id, status: result.status, ...(result.error ? { error: result.error } : {}) }))
 }

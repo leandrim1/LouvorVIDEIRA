@@ -39,6 +39,18 @@ export interface NotificationPreferences {
   pushEnabled: boolean
 }
 
+export interface PushTestResult {
+  created: number
+  /** Botão geral "Notificações push" */
+  pushEnabled: boolean
+  /** Aparelhos ativos da pessoa no servidor */
+  devices: number
+  pushed: number
+  failed: number
+  /** Motivos informados pelo serviço de push (FCM, Apple, Mozilla) */
+  errors: string[]
+}
+
 export interface PushStats {
   enabled: boolean
   usersWithPush: number
@@ -88,6 +100,24 @@ async function currentSubscription(): Promise<PushSubscription | null> {
   return reg ? reg.pushManager.getSubscription() : null
 }
 
+function sameKey(a: ArrayBuffer | null | undefined, b: Uint8Array): boolean {
+  if (!a || a.byteLength !== b.byteLength) return false
+  const view = new Uint8Array(a)
+  return view.every((byte, i) => byte === b[i])
+}
+
+/**
+ * Inscrição atual com a chave VAPID em uso no servidor. Uma inscrição criada com outra chave
+ * (ex.: chaves trocadas no servidor) é recusada pelo serviço de push, então é refeita.
+ */
+async function subscribeWithKey(reg: ServiceWorkerRegistration, key: string): Promise<PushSubscription> {
+  const serverKey = toUint8(key)
+  const existing = await reg.pushManager.getSubscription()
+  if (existing && sameKey(existing.options.applicationServerKey, serverKey)) return existing
+  if (existing) await existing.unsubscribe().catch(() => undefined)
+  return reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: serverKey })
+}
+
 /** SHA-256 do endpoint, para reconhecer este aparelho na lista */
 export async function currentEndpointHash(): Promise<string | null> {
   const sub = await currentSubscription().catch(() => null)
@@ -117,7 +147,7 @@ export const pushService = {
     const reg = await registerServiceWorker()
     if (!reg) return 'unsupported'
     await navigator.serviceWorker.ready
-    const sub = (await reg.pushManager.getSubscription()) ?? (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: toUint8(key) }))
+    const sub = await subscribeWithKey(reg, key)
     await apiFetch('notifications/subscribe', { method: 'POST', body: { subscription: sub.toJSON(), auto: false } })
     return 'on'
   },
@@ -136,7 +166,10 @@ export const pushService = {
    */
   async sync(): Promise<void> {
     if (!pushSupported() || Notification.permission !== 'granted') return
-    const sub = await currentSubscription()
+    const reg = await registerServiceWorker()
+    const key = await vapidKey()
+    if (!reg || !key || !(await reg.pushManager.getSubscription())) return
+    const sub = await subscribeWithKey(reg, key).catch(() => null)
     if (sub) await apiFetch('notifications/subscribe', { method: 'POST', body: { subscription: sub.toJSON(), auto: true } }).catch(() => undefined)
   },
 
@@ -150,7 +183,7 @@ export const pushService = {
   removeDevice: (id: string) => apiFetch(`notifications/devices/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   preferences: () => apiFetch<NotificationPreferences>('notifications/preferences'),
   savePreferences: (patch: Partial<NotificationPreferences>) => apiFetch<NotificationPreferences>('notifications/preferences', { method: 'PUT', body: patch }),
-  sendTest: () => apiFetch<{ created: number; pushed: number; failed: number }>('notifications/test', { method: 'POST', body: {} }),
+  sendTest: () => apiFetch<PushTestResult>('notifications/test', { method: 'POST', body: {} }),
   stats: () => apiFetch<PushStats>('notifications/stats'),
 }
 

@@ -54,6 +54,10 @@ export function NotificationSettingsCard({ id, className }: { id?: string; class
     void loadDevices()
   }, [loadDevices])
 
+  // Inscrito no navegador, mas o servidor não tem este aparelho ativo (ex.: falha ao registrar): precisa ativar de novo
+  const registered = devices === null || thisDevice === null || devices.some((d) => d.endpointHash === thisDevice)
+  const shown: PushState | null = state === 'on' && !registered ? 'off' : state
+
   const run = async (key: string, action: () => Promise<void>) => {
     setBusy(key)
     try {
@@ -84,8 +88,15 @@ export function NotificationSettingsCard({ id, className }: { id?: string; class
   const sendTest = () =>
     run('test', async () => {
       const result = await pushService.sendTest()
-      if (result.pushed > 0) toast.success('Notificação de teste enviada', 'Ela deve aparecer em instantes nos seus aparelhos.')
-      else toast.info('Nenhum aparelho recebeu', 'Ative as notificações neste aparelho e confira se “Notificações push” está ligado.')
+      if (result.pushed > 0 && result.failed === 0) toast.success('Notificação de teste enviada', 'Ela deve aparecer em instantes nos seus aparelhos.')
+      else if (!result.pushEnabled) toast.info('Notificações push desligadas', 'Ligue a opção “Notificações push” abaixo e envie o teste de novo.')
+      else if (result.devices === 0) toast.info('Nenhum aparelho cadastrado', 'Toque em “Ativar notificações” neste aparelho e envie o teste de novo.')
+      else
+        toast.error(
+          result.pushed > 0 ? `Enviada para ${result.pushed} aparelho(s); ${result.failed} falharam` : 'O serviço de push recusou o envio',
+          result.errors.join(' · ') || 'Remova o aparelho da lista, ative de novo e repita o teste.',
+        )
+      await loadDevices()
     })
 
   const toggle = (key: keyof NotificationPreferences, value: boolean) =>
@@ -117,14 +128,14 @@ export function NotificationSettingsCard({ id, className }: { id?: string; class
       <CardBody className="space-y-6">
         <div className="rounded-2xl border border-line bg-surface-2/50 p-4">
           <p className="text-sm font-semibold text-ink">Neste aparelho</p>
-          <p className="mt-1 text-sm text-ink-3">{state ? STATE_TEXT[state] : 'Verificando…'}</p>
+          <p className="mt-1 text-sm text-ink-3">{shown ? STATE_TEXT[shown] : 'Verificando…'}</p>
           <div className="mt-3 flex flex-wrap gap-2">
-            {(state === 'default' || state === 'off') && (
+            {(shown === 'default' || shown === 'off') && (
               <Button size="sm" leftIcon={<BellRing />} loading={busy === 'enable'} onClick={() => void enable()}>
                 Ativar notificações
               </Button>
             )}
-            {state === 'on' && (
+            {shown === 'on' && (
               <>
                 <Button size="sm" variant="secondary" leftIcon={<Send />} loading={busy === 'test'} onClick={() => void sendTest()}>
                   Enviar notificação de teste

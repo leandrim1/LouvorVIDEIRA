@@ -16,6 +16,7 @@ import { USER_ACTIONS, adminDevices, authRoute, userAction, type UserAction } fr
 import { getSession, requireApproved, type Session } from './auth.js'
 import { emailProvider } from './email.js'
 import { notificationsRoute } from './notifications.js'
+import { pushConfigStatus } from './push.js'
 
 const NOTIFICATION_ACTIONS = new Set(['config', 'subscribe', 'devices', 'read', 'read-all', 'preferences', 'dispatch', 'test', 'stats'])
 import { deleteFile, listFiles, uploadFile } from './files.js'
@@ -393,16 +394,22 @@ async function health(ctx: RequestContext) {
       headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
     })
   }
-  // Confere se a última migration (0001) foi aplicada
-  try {
-    await ctx.db.execute(sql`select status, email_verified from users limit 0`)
-    await ctx.db.execute(sql`select key from rate_limits limit 0`)
-    // Só o nome do provedor de e-mail em uso (nunca credenciais)
-    return json({ status: 'ok', database: 'ok', migrations: 'ok', email: emailProvider() ?? 'not_configured' })
-  } catch {
-    return new Response(
-      JSON.stringify({ data: { status: 'error', database: 'ok', migrations: 'pending', missing: '0001_email_verification.sql' } }),
-      { status: 503, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } },
-    )
+  // Confere se cada migration foi aplicada (a primeira que faltar é informada)
+  const checks: [string, ReturnType<typeof sql>[]][] = [
+    ['0001_email_verification.sql', [sql`select status, email_verified from users limit 0`, sql`select key from rate_limits limit 0`]],
+    ['0002_login_otp_devices.sql', [sql`select id from otp_codes limit 0`, sql`select id from device_tokens limit 0`]],
+    ['0003_push_notifications.sql', [sql`select id from push_subscriptions limit 0`, sql`select user_id from notification_preferences limit 0`, sql`select id from notification_delivery_logs limit 0`, sql`select dedupe_key from notifications limit 0`]],
+  ]
+  for (const [file, queries] of checks) {
+    try {
+      for (const query of queries) await ctx.db.execute(query)
+    } catch {
+      return new Response(JSON.stringify({ data: { status: 'error', database: 'ok', migrations: 'pending', missing: file } }), {
+        status: 503,
+        headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
+      })
+    }
   }
+  // Só nomes e situações (nunca credenciais)
+  return json({ status: 'ok', database: 'ok', migrations: 'ok', email: emailProvider() ?? 'not_configured', push: pushConfigStatus() })
 }

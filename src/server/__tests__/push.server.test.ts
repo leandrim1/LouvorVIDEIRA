@@ -327,6 +327,37 @@ describe('falhas e aparelhos', () => {
     expect((await call('GET', 'notifications/stats', { cookie: maria })).status).toBe(403)
   })
 
+  it('teste informa o motivo quando o serviço de push recusa o envio', async () => {
+    await subscribe(maria, device('fail-maria-diag'))
+    const test = await call('POST', 'notifications/test', { cookie: maria, body: {} })
+    expect(test.status).toBe(200)
+    expect(test.data).toMatchObject({ pushEnabled: true })
+    expect(test.data.devices).toBeGreaterThan(0)
+    expect(test.data.failed).toBeGreaterThan(0)
+    expect(test.data.errors.join(' ')).toContain('HTTP 500')
+  })
+
+  it('aceita chaves coladas com aspas/espaços e recusa chaves inválidas com o motivo', async () => {
+    const original = { pub: process.env.VAPID_PUBLIC_KEY!, priv: process.env.VAPID_PRIVATE_KEY! }
+    try {
+      process.env.VAPID_PUBLIC_KEY = ` "${original.pub}"\n`
+      process.env.VAPID_PRIVATE_KEY = `'${original.priv}' `
+      expect((await call('GET', 'health')).data.push).toBe('ok')
+      const test = await call('POST', 'notifications/test', { cookie: joao, body: {} })
+      expect(test.data.pushed).toBeGreaterThan(0)
+
+      process.env.VAPID_PRIVATE_KEY = original.priv.slice(0, 20)
+      expect((await call('GET', 'health')).data.push).toMatch(/^invalid/)
+      const bad = await call('POST', 'notifications/test', { cookie: joao, body: {} })
+      expect(bad.status).toBe(503)
+      expect(bad.error?.message).toContain('Chaves VAPID inválidas')
+      expect(bad.error?.message).not.toContain(original.priv.slice(0, 20))
+    } finally {
+      process.env.VAPID_PUBLIC_KEY = original.pub
+      process.env.VAPID_PRIVATE_KEY = original.priv
+    }
+  })
+
   it('sem VAPID configurado: a central continua funcionando e nada quebra', async () => {
     const key = process.env.VAPID_PRIVATE_KEY
     delete process.env.VAPID_PRIVATE_KEY

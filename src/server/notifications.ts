@@ -30,7 +30,7 @@ import { hasPermission, type Permission } from '../lib/permissions.js'
 import { requireApproved, type Session } from './auth.js'
 import { ApiError, json, noContent, readJson } from './http.js'
 import { describeDevice } from './loginSecurity.js'
-import { isAllowedPushEndpoint, pushConfig, pushToUser } from './push.js'
+import { isAllowedPushEndpoint, pushConfig, pushConfigStatus, pushToUser } from './push.js'
 
 export interface NotificationContext {
   request: Request
@@ -556,13 +556,46 @@ export async function notificationsRoute(ctx: NotificationContext, action: strin
     /* Push de teste para os próprios aparelhos (confere se as notificações chegam) */
     case 'test': {
       if (method !== 'POST') throw methodNotAllowed()
-      if (!pushConfig()) throw new ApiError(503, 'SERVICE_UNAVAILABLE', 'Notificações push não configuradas no servidor (VAPID).')
-      const result = await deliver(
-        db,
-        [{ userId: me, title: 'Notificação de teste', message: 'Tudo certo! Você vai receber os avisos da equipe neste aparelho.', category: 'general', dedupeKey: `TEST:${me}:${Date.now()}` }],
-        { type: 'system', event: 'GENERAL', entityType: null, entityId: null, link: '/configuracoes#notificacoes' },
-      )
-      return json(result)
+      const status = pushConfigStatus()
+      if (status === 'not_configured') throw new ApiError(503, 'SERVICE_UNAVAILABLE', 'Notificações push não configuradas no servidor (VAPID).')
+      if (status !== 'ok') throw new ApiError(503, 'SERVICE_UNAVAILABLE', `Chaves VAPID inválidas no servidor (${status.replace(/^invalid: /, '')}).`)
+      // O teste ignora as categorias, mas respeita o botão geral "Notificações push"
+      const pushEnabled = (await preferencesFor(db, [me]))(me).pushEnabled
+      const [{ n: devices }] = await db
+        .select({ n: count() })
+        .from(pushSubscriptions)
+        .where(and(eq(pushSubscriptions.userId, me), eq(pushSubscriptions.active, true)))
+      const [created] = await db
+        .insert(notifications)
+        .values({
+          userId: me,
+          type: 'system',
+          title: 'Notificação de teste',
+          message: 'Tudo certo! Você vai receber os avisos da equipe neste aparelho.',
+          link: '/configuracoes#notificacoes',
+          event: 'GENERAL',
+          metadata: {},
+          dedupeKey: `TEST:${me}:${Date.now()}`,
+        })
+        .returning()
+      const results = pushEnabled
+        ? await pushToUser(db, me, {
+            title: 'Louvor Videira',
+            body: `${created.title}\n${created.message}`,
+            url: created.link ?? '/notificacoes',
+            notificationId: created.id,
+            tag: created.id,
+          })
+        : []
+      // Só os aparelhos da própria pessoa: o motivo da falha ajuda a resolver sem abrir o banco
+      return json({
+        created: 1,
+        pushEnabled,
+        devices,
+        pushed: results.filter((r) => r.status === 'SENT').length,
+        failed: results.filter((r) => r.status !== 'SENT').length,
+        errors: [...new Set(results.filter((r) => r.status !== 'SENT').map((r) => r.error ?? r.status))],
+      })
     }
 
     /* Painel do administrador */
