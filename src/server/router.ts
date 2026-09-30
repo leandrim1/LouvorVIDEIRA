@@ -12,7 +12,7 @@ import { z } from 'zod'
 import { getDb, type Database } from '../db/index.js'
 import { files } from '../db/schema.js'
 import { hasPermission } from '../lib/permissions.js'
-import { USER_ACTIONS, authRoute, userAction, type UserAction } from './accounts.js'
+import { USER_ACTIONS, adminDevices, authRoute, userAction, type UserAction } from './accounts.js'
 import { getSession, requireApproved, type Session } from './auth.js'
 import { deleteFile, listFiles, uploadFile } from './files.js'
 import { ApiError, json, noContent, readJson, toErrorResponse } from './http.js'
@@ -115,6 +115,9 @@ async function route(ctx: RequestContext): Promise<Response> {
       return filesRoute(ctx, id)
   }
 
+  if (head === 'users' && id && action === 'devices' && (rest.length === 0 || (rest.length === 2 && rest[1] === 'revoke'))) {
+    return adminDevices(ctx, id, rest[0])
+  }
   if (head === 'users' && id && action && rest.length === 0 && (USER_ACTIONS as readonly string[]).includes(action)) {
     return userAction(ctx, id, action as UserAction)
   }

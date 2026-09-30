@@ -5,6 +5,7 @@ import { ApiRequestError } from '@/services/apiClient'
 import { Button, Field, Input, SegmentedControl } from '@/components/ui'
 import { AuthLayout } from './AuthLayout'
 import { CheckEmailScreen } from './CheckEmailScreen'
+import { LoginCodeScreen } from './LoginCodeScreen'
 
 type Mode = 'login' | 'signup' | 'forgot'
 
@@ -23,6 +24,8 @@ export function AuthScreen() {
   /** Situação da conta informada no login (e-mail não confirmado, aguardando aprovação…) */
   const [status, setStatus] = useState<{ code: string; message: string } | null>(null)
   const [pending, setPending] = useState<{ email: string; resendAfter: number; notice?: string } | null>(null)
+  /** Dispositivo não confiável: o servidor enviou um código de acesso por e-mail */
+  const [codeStep, setCodeStep] = useState<{ email: string; resendAfter: number } | null>(null)
 
   const switchMode = (next: Mode) => {
     setMode(next)
@@ -48,8 +51,13 @@ export function AuthScreen() {
     if (!validate()) return
     setLoading(true)
     try {
-      if (mode === 'login') await signIn(email, password)
-      else {
+      if (mode === 'login') {
+        const result = await signIn(email, password)
+        if (result.otpRequired) {
+          setPassword('')
+          setCodeStep({ email: result.email, resendAfter: result.resendAfter })
+        }
+      } else {
         const result = await signUp(name, email, password)
         setPending({ email: result.email, resendAfter: result.resendAfter })
       }
@@ -68,6 +76,19 @@ export function AuthScreen() {
     } finally {
       setLoading(false)
     }
+  }
+
+  if (codeStep) {
+    return (
+      <LoginCodeScreen
+        email={codeStep.email}
+        resendAfter={codeStep.resendAfter}
+        onBack={() => {
+          setCodeStep(null)
+          switchMode('login')
+        }}
+      />
+    )
   }
 
   if (pending) {

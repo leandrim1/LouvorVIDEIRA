@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
-import { CalendarPlus, Check, ClipboardList, KeyRound, ListPlus, Lock, Mic2, MoreHorizontal, Music, ShieldCheck, ShieldOff, Trash2, UserCheck, UserPlus, Users, X } from 'lucide-react'
+import { CalendarPlus, Check, MonitorSmartphone, ClipboardList, KeyRound, ListPlus, Lock, Mic2, MoreHorizontal, Music, ShieldCheck, ShieldOff, Trash2, UserCheck, UserPlus, Users, X } from 'lucide-react'
 import { useAuth } from '@/contexts/auth'
+import { useState } from 'react'
 import { useConfirm } from '@/contexts/confirm'
 import { useToast } from '@/contexts/toast'
 import { useSession } from '@/contexts/session'
@@ -11,6 +12,7 @@ import { USER_ROLE_LABELS } from '@/lib/constants'
 import { PERMISSION_LABELS, ROLE_PERMISSIONS, type Permission } from '@/lib/permissions'
 import { userService } from '@/services'
 import { AccessRequestsCard } from '@/components/auth/AccessRequestsCard'
+import { UserDevicesModal } from '@/components/auth/UserDevicesModal'
 import type { User, UserRole } from '@/types'
 import { Avatar, Badge, Button, Card, CardBody, CardHeader, Dropdown, EmptyState, IconButton, PageHeader, Select, SkeletonList } from '@/components/ui'
 
@@ -43,6 +45,7 @@ export default function AdminPage() {
     success: 'Integrante vinculado',
   })
   const removeUser = useMutation((id: string) => userService.remove(id), { success: 'Acesso removido' })
+  const [devicesOf, setDevicesOf] = useState<User | null>(null)
   const toast = useToast()
   const resetPassword = useMutation((id: string) => userService.resetPassword(id), {
     error: 'Não foi possível gerar a senha temporária',
@@ -191,6 +194,9 @@ export default function AdminPage() {
                                 ...(u.status === 'SUSPENDED'
                                   ? [{ label: 'Reativar acesso', icon: <UserCheck />, onSelect: () => void reactivate.mutate(u.id) }]
                                   : []),
+                                ...(mode === 'server' && u.registered
+                                  ? [{ label: 'Dispositivos', icon: <MonitorSmartphone />, onSelect: () => setDevicesOf(u) }]
+                                  : []),
                                 ...(mode === 'server' && u.emailVerified
                                   ? [{ label: 'Gerar senha temporária', icon: <KeyRound />, onSelect: () => void onResetPassword(u) }]
                                   : []),
@@ -298,6 +304,7 @@ export default function AdminPage() {
           </CardBody>
         </Card>
       </div>
+      <UserDevicesModal user={devicesOf} onClose={() => setDevicesOf(null)} />
     </div>
   )
 }

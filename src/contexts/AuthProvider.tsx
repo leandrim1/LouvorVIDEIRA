@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { clearQueryCache } from '@/hooks/useQuery'
 import { apiFetch, onUnauthorized } from '@/services/apiClient'
-import { authService } from '@/services/authService'
+import { authService, type SignInResult } from '@/services/authService'
 import { isServerMode } from '@/services/config'
 import { TABLES, emitChange } from '@/services/db'
 import type { User } from '@/types'
@@ -15,7 +15,9 @@ const DEMO: AuthContextValue = {
   status: 'signed_in',
   authUser: null,
   setupRequired: false,
-  signIn: noop,
+  signIn: async () => ({ otpRequired: false, trustedDevice: false }),
+  verifyLoginCode: async () => ({ trustedDevice: false }),
+  signOutEverywhere: noop,
   signUp: async (_name, email) => ({ email, resendAfter: 0 }),
   signOut: noop,
   changePassword: noop,
@@ -76,12 +78,34 @@ function ServerAuthProvider({ children }: { children: ReactNode }) {
   }, [apply])
 
   const signIn = useCallback(
-    async (email: string, password: string) => {
-      const { user } = await apiFetch<{ user: User }>('auth/login', { method: 'POST', body: { email: email.trim(), password } })
-      apply(user)
+    async (email: string, password: string): Promise<SignInResult> => {
+      const result = await apiFetch<{ user?: User; trustedDevice?: boolean; otpRequired?: boolean; email?: string; resendAfter?: number }>(
+        'auth/login',
+        { method: 'POST', body: { email: email.trim(), password } },
+      )
+      if (result.otpRequired) return { otpRequired: true, email: result.email ?? '', resendAfter: result.resendAfter ?? 60 }
+      apply(result.user ?? null)
+      return { otpRequired: false, trustedDevice: Boolean(result.trustedDevice) }
     },
     [apply],
   )
+
+  const verifyLoginCode = useCallback(
+    async (code: string, trustDevice: boolean) => {
+      const result = await apiFetch<{ user: User; trustedDevice: boolean }>('auth/login-verify', { method: 'POST', body: { code, trustDevice } })
+      apply(result.user)
+      return { trustedDevice: result.trustedDevice }
+    },
+    [apply],
+  )
+
+  const signOutEverywhere = useCallback(async () => {
+    try {
+      await apiFetch('auth/logout-all', { method: 'POST', body: {} })
+    } finally {
+      apply(null)
+    }
+  }, [apply])
 
   // O cadastro não abre sessão: primeiro a confirmação do e-mail, depois a aprovação
   const signUp = useCallback((name: string, email: string, password: string) => authService.signUp(name, email, password), [])
@@ -99,8 +123,20 @@ function ServerAuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const value = useMemo<AuthContextValue>(
-    () => ({ mode: 'server', status, authUser, setupRequired, signIn, signUp, signOut, changePassword, fetchSessionUser }),
-    [status, authUser, setupRequired, signIn, signUp, signOut, changePassword, fetchSessionUser],
+    () => ({
+      mode: 'server',
+      status,
+      authUser,
+      setupRequired,
+      signIn,
+      verifyLoginCode,
+      signUp,
+      signOut,
+      signOutEverywhere,
+      changePassword,
+      fetchSessionUser,
+    }),
+    [status, authUser, setupRequired, signIn, verifyLoginCode, signUp, signOut, signOutEverywhere, changePassword, fetchSessionUser],
   )
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

@@ -100,7 +100,7 @@ export async function createSession(db: Database, userId: string, request: Reque
   return token
 }
 
-function readCookie(request: Request, name: string): string | null {
+export function readCookie(request: Request, name: string): string | null {
   const header = request.headers.get('cookie')
   if (!header) return null
   for (const part of header.split(';')) {
@@ -143,23 +143,19 @@ export async function deleteUserSessions(db: Database, userId: string) {
 const isSecure = (request: Request) =>
   new URL(request.url).protocol === 'https:' || request.headers.get('x-forwarded-proto') === 'https'
 
-export function sessionCookie(token: string, request: Request): string {
-  return [
-    `${SESSION_COOKIE}=${token}`,
-    'Path=/',
-    'HttpOnly',
-    'SameSite=Lax',
-    `Max-Age=${SESSION_DAYS * 86_400}`,
-    isSecure(request) ? 'Secure' : '',
-  ]
+/** Cookie httpOnly (JavaScript da página não lê), SameSite=Lax e Secure em HTTPS */
+export function buildCookie(name: string, value: string, maxAgeSeconds: number, request: Request): string {
+  return [`${name}=${value}`, 'Path=/', 'HttpOnly', 'SameSite=Lax', `Max-Age=${maxAgeSeconds}`, isSecure(request) ? 'Secure' : '']
     .filter(Boolean)
     .join('; ')
 }
 
+export function sessionCookie(token: string, request: Request): string {
+  return buildCookie(SESSION_COOKIE, token, SESSION_DAYS * 86_400, request)
+}
+
 export function clearSessionCookie(request: Request): string {
-  return [`${SESSION_COOKIE}=`, 'Path=/', 'HttpOnly', 'SameSite=Lax', 'Max-Age=0', isSecure(request) ? 'Secure' : '']
-    .filter(Boolean)
-    .join('; ')
+  return buildCookie(SESSION_COOKIE, '', 0, request)
 }
 
 /* ------------------------------------------------------------------ */

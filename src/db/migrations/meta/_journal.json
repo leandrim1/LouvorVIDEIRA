@@ -15,6 +15,13 @@
       "when": 1790765699490,
       "tag": "0001_email_verification",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790767885899,
+      "tag": "0002_login_otp_devices",
+      "breakpoints": true
     }
   ]
 }

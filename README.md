@@ -142,7 +142,10 @@ src/
 | `/api/song-preparations` | GET, POST, PATCH, DELETE | Preparação individual |
 | `/api/files` | GET, POST (multipart), DELETE | Arquivos no Vercel Blob |
 | `/api/auth/session`, `signup`, `verify-email`, `resend-verification`, `change-email`, `login`, `logout`, `password` | GET, POST | Cadastro, confirmação do e-mail, login e senha |
+| `/api/auth/login-verify`, `login-resend` | POST | Código de acesso (etapa 2 do login) e reenvio |
+| `/api/auth/devices`, `devices-revoke`, `devices-revoke-current`, `devices-revoke-all`, `logout-all` | GET, POST | Dispositivos confiáveis da própria conta |
 | `/api/users/:id/approve`, `reject`, `suspend`, `reset-password` | POST | Aprovar, recusar, suspender e senha temporária (administrador) |
+| `/api/users/:id/devices`, `/api/users/:id/devices/:deviceId/revoke` | GET, POST | Dispositivos de um usuário (administrador) |
 | `/api/batch` | POST | Até 30 leituras em uma chamada |
 | `/api/export` | GET | Backup em JSON (administrador) |
 | `/api/health` | GET | Verifica a conexão com o banco |
@@ -185,6 +188,23 @@ Status possíveis: `PENDING_EMAIL_VERIFICATION`, `PENDING_ADMIN_APPROVAL`, `APPR
 
 Sem essas variáveis, o cadastro responde "Envio de e-mails não configurado no servidor. Defina: …" e nada é gravado. O envio nunca é simulado.
 
+## Login com código por e-mail e dispositivos confiáveis
+
+```
+E-mail + senha → dispositivo confiável? → sim: entra direto
+                                        → não: código de 6 dígitos por e-mail → entra (e, se marcado, confia no dispositivo)
+```
+
+- **Código:** 6 dígitos gerados com `crypto.randomInt`, válido por **10 minutos**, uso único, no máximo **5 tentativas**. O banco guarda só o hash de (desafio + código); o desafio é um segredo de 256 bits num cookie `httpOnly` (`lv_login`) do navegador que acertou a senha, então o código não funciona em outro navegador nem pode ser descoberto por quem lê o banco.
+- **Reenvio:** "Reenviar código" liberado a cada 60 s; limites de 5 códigos por pessoa a cada 15 minutos e por IP. Senha errada nunca envia código, e a mensagem é a mesma para e-mail inexistente.
+- **Confiar neste dispositivo:** cria um token de 256 bits em cookie `httpOnly`/`Secure`/`SameSite=Lax` (`lv_device`) por **30 dias** (altere `LOGIN_POLICY.trustedDeviceDays` em `src/server/loginSecurity.ts`). O banco guarda só o hash; o token é trocado a cada uso e, se um token antigo reaparecer (cookie copiado), o dispositivo é revogado. Navegador ou sistema diferentes do registrado voltam a pedir o código.
+- **Sessão separada:** o cookie do dispositivo não dá acesso sozinho; ele só pula o código. **Sair** encerra a sessão e mantém a confiança; **Sair de todos os dispositivos** encerra todas as sessões e revoga as confianças.
+- **Configurações → Segurança:** lista os dispositivos confiáveis (último acesso, validade), revogar um, **Revogar este dispositivo**, **Revogar todos os dispositivos** e **Sair de todos os dispositivos**.
+- **Administração → ⋯ → Dispositivos:** o administrador vê os dispositivos de cada usuário (navegador, sistema, último acesso, criação e situação) e pode revogar. Suspender uma conta ou gerar senha temporária também revoga os dispositivos dela.
+- **Eventos de segurança** (`security_events`): `LOGIN_SUCCESS`, `LOGIN_FAILED`, `OTP_SENT`, `OTP_FAILED`, `OTP_LOCKED`, `OTP_VERIFIED`, `DEVICE_TRUSTED`, `DEVICE_REJECTED`, `DEVICE_REVOKED`, `ALL_DEVICES_REVOKED`, `LOGOUT`, `LOGOUT_ALL`, com IP, navegador e detalhes.
+
+O login usa as mesmas variáveis do Resend (`RESEND_API_KEY`, `EMAIL_FROM`, `APP_URL`). Sem elas, ninguém consegue entrar em um dispositivo novo.
+
 ## Banco de dados (Neon + Drizzle)
 
 ### Tabelas
@@ -213,6 +233,7 @@ As migrations ficam em `src/db/migrations/` e são aplicadas **manualmente**, nu
 | --- | --- |
 | `0000_initial_schema.sql` | Tabelas iniciais |
 | `0001_email_verification.sql` | Status da conta, confirmação de e-mail, aprovação/recusa e limite de tentativas. Contas que já tinham acesso continuam liberadas |
+| `0002_login_otp_devices.sql` | Código de acesso por e-mail (`otp_codes`), dispositivos confiáveis (`device_tokens`) e eventos de segurança (`security_events`) |
 
 Se você aplica as migrations colando o SQL no **SQL Editor do Neon**, cole cada arquivo novo, em ordem, uma única vez. Ao alterar o schema:
 ```bash
@@ -273,4 +294,5 @@ Depois, a cada mudança no schema: `npm run db:generate` → revise o SQL → `n
 - transposição de tons e acordes, leitura de cifras, links do YouTube/Vimeo, datas e cálculo de preparação;
 - integridade dos dados de demonstração;
 - **API contra um PostgreSQL real em memória** (mesmas migrations e seed): login, primeiro administrador, aprovação, permissões no servidor, tentativa de elevar o próprio nível de acesso, validação (400), conflitos (409), 404, CSRF, favoritos pessoais, senha temporária, logout e upload sem Blob configurado;
-- **cadastro e confirmação de e-mail** (`accounts.server.test.ts`): formatos inválidos, descartáveis e domínio sem MX, e-mail já existente, conteúdo do e-mail, link, token expirado e reutilizado, reenvio e limites, login em cada situação, aprovação bloqueada sem confirmação, aprovação, recusa, suspensão, troca de e-mail e segurança dos tokens.
+- **cadastro e confirmação de e-mail** (`accounts.server.test.ts`): formatos inválidos, descartáveis e domínio sem MX, e-mail já existente, conteúdo do e-mail, link, token expirado e reutilizado, reenvio e limites, login em cada situação, aprovação bloqueada sem confirmação, aprovação, recusa, suspensão, troca de e-mail e segurança dos tokens;
+- **login com código e dispositivos** (`loginOtp.server.test.ts`): código correto, incorreto, expirado, reutilizado e bloqueado, reenvio e limites, dispositivo confiável, login sem código, outro dispositivo, revogar um/todos, sair, sair de todos, sessão e confiança vencidas, token inválido, adulterado, de outra pessoa e reutilizado.

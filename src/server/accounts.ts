@@ -33,6 +33,22 @@ import {
 import { approvalEmail, assertEmailConfigured, rejectionEmail, sendEmail, verificationEmail } from './email.js'
 import { EMAIL_PROBLEM_MESSAGES, checkEmailAddress, isValidEmailFormat } from './emailValidation.js'
 import { ApiError, json, noContent, readJson } from './http.js'
+import {
+  LOGIN_POLICY,
+  checkTrustedDevice,
+  clearChallengeCookie,
+  clearDeviceCookie,
+  currentDeviceId,
+  listDevices,
+  logSecurityEvent,
+  maskEmail,
+  resendOtp,
+  revokeAllDevices,
+  revokeDevice,
+  startOtpChallenge,
+  trustDevice,
+  verifyOtp,
+} from './loginSecurity.js'
 import { LIMITS, RESEND_COOLDOWN_SECONDS, clientIp, enforce, hit } from './rateLimit.js'
 
 export interface AccountContext {
@@ -62,6 +78,7 @@ const loginSchema = z.object({ email: z.string().trim().toLowerCase().max(254), 
 const emailOnlySchema = z.object({ email: z.string().trim().toLowerCase().max(254) })
 const verifySchema = z.object({ token: z.string().min(20).max(200) })
 const changeEmailSchema = z.object({ email: z.string().trim().toLowerCase().max(254), password: z.string().min(1).max(200), newEmail: emailField })
+const otpSchema = z.object({ code: z.string().trim().max(12), trustDevice: z.boolean().optional().default(false) })
 const passwordSchema = z.object({ currentPassword: z.string().max(200).default(''), newPassword: password })
 const rejectSchema = z.object({ reason: z.string().trim().max(500).optional().default(''), notify: z.boolean().optional().default(false) })
 
@@ -311,7 +328,10 @@ export async function authRoute(ctx: AccountContext, action: string | undefined)
       return json(pendingResponse(updated!.email))
     }
 
-    /* Login: senha correta + e-mail confirmado + conta aprovada */
+    /*
+     * Login, etapa 1: senha correta + e-mail confirmado + conta aprovada.
+     * Dispositivo confiável → entra direto. Caso contrário → envia o código por e-mail (etapa 2).
+     */
     case 'login': {
       expect('POST')
       const input = loginSchema.parse(await readJson(request))
@@ -319,30 +339,111 @@ export async function authRoute(ctx: AccountContext, action: string | undefined)
       await enforce(db, 'login:email', input.email, LIMITS.loginPerEmail, 'Muitas tentativas de login para este e-mail. Aguarde alguns minutos.')
       const user = await findByEmail(db, input.email)
       const valid = user?.passwordHash ? await verifyPassword(input.password, user.passwordHash) : await dummyPasswordCheck(input.password).then(() => false)
-      if (!user || !valid) throw ApiError.unauthorized('E-mail ou senha incorretos.')
+      if (!user || !valid) {
+        await logSecurityEvent(db, request, 'LOGIN_FAILED', user?.id ?? null, { reason: 'credentials' })
+        throw ApiError.unauthorized('E-mail ou senha incorretos.')
+      }
+      assertCanLogin(user)
 
-      // A situação da conta só é revelada para quem acertou a senha
-      if (!user.emailVerified || user.status === 'PENDING_EMAIL_VERIFICATION') {
-        throw new ApiError(403, 'EMAIL_NOT_VERIFIED', 'Confirme seu e-mail antes de entrar.')
+      const device = await checkTrustedDevice(db, request, user.id)
+      if (device.trusted) {
+        const cookies = await openSession(db, user, request, { method: 'trusted_device', deviceId: device.deviceId })
+        cookies.push(['set-cookie', device.cookie])
+        return json({ user: publicUser(user), trustedDevice: true }, 200, cookies)
       }
-      if (user.status === 'PENDING_ADMIN_APPROVAL') {
-        throw new ApiError(403, 'PENDING_APPROVAL', 'Seu e-mail foi confirmado. Sua conta está aguardando aprovação do administrador.')
-      }
-      if (user.status === 'REJECTED') throw new ApiError(403, 'ACCOUNT_REJECTED', 'Seu pedido de acesso não foi aprovado.')
-      if (user.status === 'SUSPENDED') {
-        throw new ApiError(403, 'ACCOUNT_SUSPENDED', 'Seu acesso está suspenso. Fale com o administrador da equipe.')
-      }
-
-      await db.delete(sessions).where(and(eq(sessions.userId, user.id), lt(sessions.expiresAt, new Date())))
-      const token = await createSession(db, user.id, request)
-      return json({ user: publicUser(user) }, 200, { 'set-cookie': sessionCookie(token, request) })
+      const cookies: [string, string][] = []
+      if (device.clearCookie) cookies.push(['set-cookie', clearDeviceCookie(request)])
+      cookies.push(['set-cookie', await startOtpChallenge(db, user, request)])
+      return json(
+        { otpRequired: true, email: maskEmail(user.email), resendAfter: LOGIN_POLICY.otpResendSeconds, expiresInMinutes: LOGIN_POLICY.otpMinutes },
+        202,
+        cookies,
+      )
     }
 
+    /* Login, etapa 2: código de 6 dígitos (+ "Confiar neste dispositivo") */
+    case 'login-verify': {
+      expect('POST')
+      const input = otpSchema.parse(await readJson(request))
+      const userId = await verifyOtp(db, request, input.code)
+      const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1)
+      if (!user) throw new ApiError(400, 'OTP_SESSION_EXPIRED', 'Sua tentativa de login expirou. Informe e-mail e senha novamente.')
+      assertCanLogin(user)
+      const cookies = await openSession(db, user, request, { method: 'otp', trustDevice: input.trustDevice })
+      cookies.push(['set-cookie', clearChallengeCookie(request)])
+      if (input.trustDevice) cookies.push(['set-cookie', await trustDevice(db, request, user.id)])
+      return json({ user: publicUser(user), trustedDevice: input.trustDevice }, 200, cookies)
+    }
+
+    case 'login-resend': {
+      expect('POST')
+      const result = await resendOtp(db, request, async (id) => {
+        const [user] = await db.select().from(users).where(eq(users.id, id)).limit(1)
+        return user
+      })
+      return json(result)
+    }
+
+    /* Sair: encerra só esta sessão; a confiança do dispositivo continua */
     case 'logout': {
       expect('POST')
       const session = await ctx.session()
-      if (session) await deleteSession(db, session.sessionId)
+      if (session) {
+        await deleteSession(db, session.sessionId)
+        await logSecurityEvent(db, request, 'LOGOUT', session.user.id)
+      }
       return noContent({ 'set-cookie': clearSessionCookie(request) })
+    }
+
+    /* Sair de todos os dispositivos: encerra todas as sessões e revoga todas as confianças */
+    case 'logout-all': {
+      expect('POST')
+      const session = requireSession(await ctx.session())
+      const revoked = await revokeAllDevices(db, session.user.id)
+      await deleteUserSessions(db, session.user.id)
+      await logSecurityEvent(db, request, 'LOGOUT_ALL', session.user.id, { devicesRevoked: revoked })
+      return noContent([
+        ['set-cookie', clearSessionCookie(request)],
+        ['set-cookie', clearDeviceCookie(request)],
+      ])
+    }
+
+    /* Dispositivos confiáveis da própria pessoa */
+    case 'devices': {
+      expect('GET')
+      const session = requireSession(await ctx.session())
+      const current = await currentDeviceId(db, request, session.user.id)
+      const devices = await listDevices(db, session.user.id)
+      return json(devices.map((d) => ({ ...d, current: d.id === current })))
+    }
+
+    case 'devices-revoke': {
+      expect('POST')
+      const session = requireSession(await ctx.session())
+      const { id } = z.object({ id: z.uuid() }).parse(await readJson(request))
+      const current = await currentDeviceId(db, request, session.user.id)
+      if (!(await revokeDevice(db, id, session.user.id))) throw ApiError.notFound('Dispositivo não encontrado.')
+      await logSecurityEvent(db, request, 'DEVICE_REVOKED', session.user.id, { deviceId: id, by: 'user' })
+      return noContent(id === current ? { 'set-cookie': clearDeviceCookie(request) } : undefined)
+    }
+
+    case 'devices-revoke-current': {
+      expect('POST')
+      const session = requireSession(await ctx.session())
+      const current = await currentDeviceId(db, request, session.user.id)
+      if (current && (await revokeDevice(db, current, session.user.id))) {
+        await logSecurityEvent(db, request, 'DEVICE_REVOKED', session.user.id, { deviceId: current, by: 'user', current: true })
+      }
+      return noContent({ 'set-cookie': clearDeviceCookie(request) })
+    }
+
+    case 'devices-revoke-all': {
+      expect('POST')
+      const session = requireSession(await ctx.session())
+      // Uma única instrução revoga todos; a sessão atual continua válida
+      const revoked = await revokeAllDevices(db, session.user.id)
+      await logSecurityEvent(db, request, 'ALL_DEVICES_REVOKED', session.user.id, { count: revoked })
+      return json({ revoked }, 200, { 'set-cookie': clearDeviceCookie(request) })
     }
 
     case 'password': {
@@ -363,6 +464,26 @@ export async function authRoute(ctx: AccountContext, action: string | undefined)
     }
   }
   throw ApiError.notFound('Rota não encontrada.')
+}
+
+/** Situação da conta: só contas aprovadas com e-mail confirmado entram */
+function assertCanLogin(user: UserRow) {
+  if (!user.emailVerified || user.status === 'PENDING_EMAIL_VERIFICATION') {
+    throw new ApiError(403, 'EMAIL_NOT_VERIFIED', 'Confirme seu e-mail antes de entrar.')
+  }
+  if (user.status === 'PENDING_ADMIN_APPROVAL') {
+    throw new ApiError(403, 'PENDING_APPROVAL', 'Seu e-mail foi confirmado. Sua conta está aguardando aprovação do administrador.')
+  }
+  if (user.status === 'REJECTED') throw new ApiError(403, 'ACCOUNT_REJECTED', 'Seu pedido de acesso não foi aprovado.')
+  if (user.status === 'SUSPENDED') throw new ApiError(403, 'ACCOUNT_SUSPENDED', 'Seu acesso está suspenso. Fale com o administrador da equipe.')
+}
+
+/** Cria a sessão (independente da confiança do dispositivo) */
+async function openSession(db: Database, user: UserRow, request: Request, metadata: Record<string, unknown>): Promise<[string, string][]> {
+  await db.delete(sessions).where(and(eq(sessions.userId, user.id), lt(sessions.expiresAt, new Date())))
+  const token = await createSession(db, user.id, request)
+  await logSecurityEvent(db, request, 'LOGIN_SUCCESS', user.id, metadata)
+  return [['set-cookie', sessionCookie(token, request)]]
 }
 
 /** Aviso no sino dos administradores quando alguém confirma o e-mail */
@@ -399,6 +520,21 @@ async function trySend(send: () => Promise<void>): Promise<boolean> {
     console.error('[email] aviso não enviado:', error instanceof Error ? error.message : error)
     return false
   }
+}
+
+/** Administrador: GET /api/users/:id/devices e POST /api/users/:id/devices/:deviceId/revoke */
+export async function adminDevices(ctx: AccountContext, userId: string, deviceId?: string): Promise<Response> {
+  const session = requireApproved(await ctx.session())
+  if (!hasPermission(session.user.role, 'users:manage')) throw ApiError.forbidden()
+  if (!UUID.test(userId) || (deviceId !== undefined && !UUID.test(deviceId))) throw ApiError.notFound('Dispositivo não encontrado.')
+  if (deviceId === undefined) {
+    if (ctx.method !== 'GET') throw methodNotAllowed()
+    return json(await listDevices(ctx.db, userId))
+  }
+  if (ctx.method !== 'POST') throw methodNotAllowed()
+  if (!(await revokeDevice(ctx.db, deviceId, userId))) throw ApiError.notFound('Dispositivo não encontrado ou já revogado.')
+  await logSecurityEvent(ctx.db, ctx.request, 'DEVICE_REVOKED', userId, { deviceId, by: 'admin', adminId: session.user.id })
+  return noContent()
 }
 
 export async function userAction(ctx: AccountContext, id: string, action: UserAction): Promise<Response> {
@@ -468,6 +604,7 @@ export async function userAction(ctx: AccountContext, id: string, action: UserAc
       }
       const [user] = await db.update(users).set({ status: 'SUSPENDED', updatedAt: new Date() }).where(eq(users.id, id)).returning()
       await deleteUserSessions(db, id)
+      await revokeAllDevices(db, id)
       return json({ user: publicUser(user!), emailSent: false })
     }
 
@@ -476,7 +613,11 @@ export async function userAction(ctx: AccountContext, id: string, action: UserAc
       if (!target.emailVerified) throw new ApiError(409, 'EMAIL_NOT_VERIFIED', 'Este usuário ainda não confirmou o e-mail.')
       const newPassword = temporaryPassword(10)
       const [user] = await db.update(users).set({ passwordHash: await hashPassword(newPassword), updatedAt: new Date() }).where(eq(users.id, id)).returning()
-      if (!isSelf) await deleteUserSessions(db, id)
+      if (!isSelf) {
+        await deleteUserSessions(db, id)
+        // Recuperação de acesso: os próximos logins voltam a pedir o código
+        await revokeAllDevices(db, id)
+      }
       return json({ user: publicUser(user!), temporaryPassword: newPassword })
     }
   }

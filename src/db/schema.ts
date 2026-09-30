@@ -13,6 +13,7 @@ import {
   date,
   index,
   integer,
+  jsonb,
   pgEnum,
   pgTable,
   smallint,
@@ -135,6 +136,75 @@ export const rateLimits = pgTable('rate_limits', {
   count: integer('count').notNull().default(0),
   windowStart: timestamp('window_start', { withTimezone: true }).notNull().defaultNow(),
 })
+
+/**
+ * Código de acesso (OTP) do login em duas etapas. O código de 6 dígitos só existe no e-mail:
+ * o banco guarda o hash de (desafio + código), onde o desafio é um segredo de 256 bits
+ * guardado em cookie httpOnly no navegador que digitou a senha.
+ */
+export const otpCodes = pgTable(
+  'otp_codes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** SHA-256 do token de desafio (cookie) que liga o código a quem acertou a senha */
+    challengeHash: text('challenge_hash').notNull().unique(),
+    codeHash: text('code_hash').notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    attempts: smallint('attempts').notNull().default(0),
+    usedAt: timestamp('used_at', { withTimezone: true }),
+    /** Último envio do código (intervalo mínimo entre reenvios) */
+    sentAt: timestamp('sent_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: createdAt(),
+    requestedIp: text('requested_ip').notNull().default(''),
+    userAgent: text('user_agent').notNull().default(''),
+  },
+  (t) => [index('otp_codes_user_idx').on(t.userId, t.createdAt)],
+)
+
+/**
+ * Dispositivo confiável: permite pular o código nos próximos logins (não é a sessão).
+ * O token fica em cookie httpOnly; o banco guarda só o hash, trocado a cada uso.
+ */
+export const deviceTokens = pgTable(
+  'device_tokens',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    tokenHash: text('token_hash').notNull().unique(),
+    /** Hash do token anterior: se reaparecer, o cookie pode ter sido copiado */
+    previousTokenHash: text('previous_token_hash'),
+    deviceName: text('device_name').notNull().default(''),
+    browser: text('browser').notNull().default(''),
+    os: text('os').notNull().default(''),
+    createdAt: createdAt(),
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    lastIp: text('last_ip').notNull().default(''),
+    userAgent: text('user_agent').notNull().default(''),
+  },
+  (t) => [index('device_tokens_user_idx').on(t.userId), index('device_tokens_previous_idx').on(t.previousTokenHash)],
+)
+
+/** Registro de eventos de segurança (login, códigos, dispositivos) */
+export const securityEvents = pgTable(
+  'security_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    type: text('type').notNull(),
+    ip: text('ip').notNull().default(''),
+    userAgent: text('user_agent').notNull().default(''),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: createdAt(),
+  },
+  (t) => [index('security_events_user_idx').on(t.userId, t.createdAt), index('security_events_type_idx').on(t.type, t.createdAt)],
+)
 
 export const sessions = pgTable(
   'sessions',

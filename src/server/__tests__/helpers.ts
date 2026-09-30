@@ -20,18 +20,31 @@ export interface CallOptions {
   form?: FormData
   /** IP do cliente; por padrão um IP diferente a cada chamada (não esbarra nos limites) */
   ip?: string
+  userAgent?: string
 }
+
+export const CHROME_WINDOWS = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36'
+export const CHROME_ANDROID = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Mobile Safari/537.36'
 
 export interface CallResult {
   status: number
   data: any
   error?: { code: string; message: string; details?: Record<string, string[]>; retryAfter?: number }
   setCookie: string
+  /** Cookie de sessão (lv_session=…) */
   cookie: string
+  /** Todos os cookies definidos na resposta, por nome */
+  cookies: Record<string, string>
+  /** Cabeçalhos Set-Cookie completos (com atributos) */
+  setCookies: string[]
 }
 
 export async function call(method: string, path: string, options: CallOptions = {}): Promise<CallResult> {
-  const headers = new Headers({ host: 'louvor.test', 'x-real-ip': options.ip ?? `10.${randomInt(255)}.${randomInt(255)}.${randomInt(255)}` })
+  const headers = new Headers({
+    host: 'louvor.test',
+    'x-real-ip': options.ip ?? `10.${randomInt(255)}.${randomInt(255)}.${randomInt(255)}`,
+    'user-agent': options.userAgent ?? CHROME_WINDOWS,
+  })
   if (options.cookie) headers.set('cookie', options.cookie)
   if (method !== 'GET' && options.origin !== null) headers.set('origin', options.origin ?? ORIGIN)
   let body: FormData | string | undefined
@@ -43,8 +56,23 @@ export async function call(method: string, path: string, options: CallOptions = 
   const response = await handleRequest(new Request(`${ORIGIN}/api/${path}`, { method, headers, body }))
   const text = await response.text()
   const json = text ? JSON.parse(text) : {}
-  const setCookie = response.headers.get('set-cookie') ?? ''
-  return { status: response.status, data: json.data, error: json.error, setCookie, cookie: setCookie.split(';')[0] ?? '' }
+  const all = response.headers.getSetCookie()
+  const cookies: Record<string, string> = {}
+  for (const c of all) {
+    const [pair = ''] = c.split(';')
+    const name = pair.slice(0, pair.indexOf('='))
+    cookies[name] = pair.slice(pair.indexOf('=') + 1)
+  }
+  const session = all.find((c) => c.startsWith('lv_session='))
+  return {
+    status: response.status,
+    data: json.data,
+    error: json.error,
+    setCookie: session ?? all[0] ?? '',
+    cookie: session?.split(';')[0] ?? '',
+    cookies,
+    setCookies: all,
+  }
 }
 
 /* E-mails enviados durante os testes */
@@ -91,8 +119,48 @@ export async function signupAndVerify(name: string, email: string, password: str
   return verify.data as { status: string }
 }
 
-export async function login(email: string, password: string) {
-  return call('POST', 'auth/login', { body: { email, password } })
+/** Código de acesso do último e-mail enviado para o endereço */
+export const otpFrom = (message: EmailMessage | undefined) => {
+  const match = message?.text.match(/Seu código de acesso é: (\d{6})/)
+  if (!match) throw new Error('E-mail sem código de acesso')
+  return match[1]!
+}
+
+/** Monta o cabeçalho Cookie a partir de pares nome=valor (valores vazios são ignorados) */
+export const cookieHeader = (cookies: Record<string, string | undefined>) =>
+  Object.entries(cookies)
+    .filter(([, v]) => v)
+    .map(([k, v]) => `${k}=${v}`)
+    .join('; ')
+
+export interface LoginOptions {
+  trustDevice?: boolean
+  deviceCookie?: string
+  userAgent?: string
+  ip?: string
+}
+
+/**
+ * Login completo: etapa da senha e, se o dispositivo não for confiável, o código do e-mail.
+ * Retorna a resposta final (ou a da etapa 1, se ela falhar ou entrar direto).
+ */
+export async function login(email: string, password: string, options: LoginOptions = {}): Promise<CallResult & { deviceCookie?: string }> {
+  const device = options.deviceCookie
+  const first = await call('POST', 'auth/login', {
+    body: { email, password },
+    cookie: cookieHeader({ lv_device: device }),
+    userAgent: options.userAgent,
+    ip: options.ip,
+  })
+  if (first.status !== 202) return { ...first, deviceCookie: first.cookies.lv_device ?? device }
+  const code = otpFrom(lastEmailTo(email))
+  const second = await call('POST', 'auth/login-verify', {
+    body: { code, trustDevice: options.trustDevice ?? false },
+    cookie: cookieHeader({ lv_login: first.cookies.lv_login, lv_device: first.cookies.lv_device === '' ? undefined : device }),
+    userAgent: options.userAgent,
+    ip: options.ip,
+  })
+  return { ...second, deviceCookie: second.cookies.lv_device ?? (first.cookies.lv_device === '' ? undefined : device) }
 }
 
 export async function userByEmail(db: Database, email: string) {

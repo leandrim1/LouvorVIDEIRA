@@ -86,14 +86,19 @@ interface LayoutOptions {
   preheader: string
   heading: string
   paragraphs: string[]
+  /** Código em destaque (ex.: código de acesso) */
+  code?: string
   button?: { label: string; url: string }
   footnote?: string
 }
 
 /** Layout com a identidade do Louvor Videira, compatível com os principais clientes de e-mail */
-function layout({ preheader, heading, paragraphs, button, footnote }: LayoutOptions): string {
+function layout({ preheader, heading, paragraphs, code, button, footnote }: LayoutOptions): string {
   const base = appUrl() ?? ''
   const body = paragraphs.map((p) => `<p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#334155">${p}</p>`).join('')
+  const codeBlock = code
+    ? `<p style="margin:8px 0 24px;padding:18px 0;border-radius:14px;background:#eef2ff;text-align:center;font-family:'SFMono-Regular',Consolas,'Liberation Mono',monospace;font-size:36px;font-weight:800;letter-spacing:10px;color:#1e293b">${escapeHtml(code)}</p>`
+    : ''
   const cta = button
     ? `<table role="presentation" cellspacing="0" cellpadding="0" style="margin:8px 0 24px"><tr><td style="border-radius:12px;background:#2f5fb3">
          <a href="${escapeHtml(button.url)}" style="display:inline-block;padding:14px 28px;font-size:16px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:12px">${escapeHtml(button.label)}</a>
@@ -113,7 +118,7 @@ function layout({ preheader, heading, paragraphs, button, footnote }: LayoutOpti
     </td></tr>
     <tr><td style="padding:32px">
       <h1 style="margin:0 0 20px;font-size:22px;line-height:1.3;color:#0f172a">${escapeHtml(heading)}</h1>
-      ${body}${cta}
+      ${body}${codeBlock}${cta}
       ${footnote ? `<p style="margin:24px 0 0;padding-top:16px;border-top:1px solid #e2e8f0;font-size:13px;line-height:1.5;color:#64748b">${footnote}</p>` : ''}
     </td></tr>
   </table>
@@ -164,5 +169,21 @@ export function rejectionEmail(name: string, to: string, reason: string | null):
     subject: 'Sua solicitação de acesso — Louvor Videira',
     html: layout({ preheader: 'Sua solicitação de acesso não foi aprovada.', heading: 'Solicitação não aprovada', paragraphs }),
     text: `Olá, ${name}.\n\nSua solicitação de acesso ao Louvor Videira não foi aprovada.${reason ? `\n\nMotivo: ${reason}` : ''}\n\nSe acredita que houve um engano, fale com a liderança da equipe de louvor.`,
+  }
+}
+
+export function loginCodeEmail(name: string, to: string, code: string, minutes: number): EmailMessage {
+  const first = escapeHtml(name.split(' ')[0] || name)
+  return {
+    to,
+    subject: 'Seu código de acesso — Louvor Videira',
+    html: layout({
+      preheader: `Seu código de acesso é ${code}. Ele expira em ${minutes} minutos.`,
+      heading: 'Código de acesso',
+      paragraphs: [`Olá, ${first}.`, 'Seu código de acesso é:'],
+      code,
+      footnote: `Esse código expira em ${minutes} minutos. Se você não tentou entrar no Louvor Videira, ignore este e-mail e considere trocar sua senha.`,
+    }),
+    text: `Olá, ${name}.\n\nSeu código de acesso é: ${code}\n\nEsse código expira em ${minutes} minutos.\n\nSe você não tentou entrar no Louvor Videira, ignore este e-mail.`,
   }
 }

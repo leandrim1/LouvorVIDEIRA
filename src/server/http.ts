@@ -28,6 +28,11 @@ export type ErrorCode =
   | 'ACCOUNT_SUSPENDED'
   | 'TOKEN_INVALID'
   | 'TOKEN_EXPIRED'
+  | 'OTP_SESSION_EXPIRED'
+  | 'OTP_INVALID'
+  | 'OTP_EXPIRED'
+  | 'OTP_USED'
+  | 'OTP_LOCKED'
 
 export class ApiError extends Error {
   readonly status: number

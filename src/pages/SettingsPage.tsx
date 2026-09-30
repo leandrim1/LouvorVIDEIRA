@@ -2,6 +2,7 @@ import { useEffect, type ReactNode } from 'react'
 import { useLocation } from 'react-router-dom'
 import { Database, Download, Monitor, Moon, RotateCcw, Sun, UserCog } from 'lucide-react'
 import { AccountCard } from '@/components/auth/AccountCard'
+import { SecurityCard } from '@/components/auth/SecurityCard'
 import { useAuth } from '@/contexts/auth'
 import { useConfirm } from '@/contexts/confirm'
 import { useSession } from '@/contexts/session'
@@ -102,7 +103,10 @@ export default function SettingsPage() {
         </Card>
 
         {mode === 'server' ? (
-          <AccountCard id="perfil" className="scroll-mt-24 lg:col-span-2" />
+          <>
+            <AccountCard id="perfil" className="scroll-mt-24 lg:col-span-2" />
+            <SecurityCard className="lg:col-span-2" />
+          </>
         ) : (
         <Card id="perfil" className="scroll-mt-24 lg:col-span-2">
           <CardHeader title="Perfil de acesso (demonstração)" description="Troque de usuário para testar os níveis Administrador, Líder e Integrante" icon={<UserCog />} />
