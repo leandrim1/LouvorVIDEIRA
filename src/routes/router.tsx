@@ -34,6 +34,7 @@ export const router = createRouter([
           { path: 'escalas/:id', lazy: page(() => import('@/pages/schedules/ScheduleDetailPage')) },
           { path: 'escalas/:id/editar', lazy: page(() => import('@/pages/schedules/ScheduleFormPage')) },
           { path: 'ensaios', lazy: page(() => import('@/pages/RehearsalsPage')) },
+          { path: 'ensaios/:id', lazy: page(() => import('@/pages/RehearsalsPage')) },
           { path: 'equipe', lazy: page(() => import('@/pages/TeamPage')) },
           { path: 'favoritos', lazy: page(() => import('@/pages/FavoritesPage')) },
           { path: 'notificacoes', lazy: page(() => import('@/pages/NotificationsPage')) },

@@ -1,6 +1,8 @@
 import { generateId } from '@/lib/utils'
 import type { AppNotification, NotificationType } from '@/types'
-import { db } from './db'
+import { apiFetch } from './apiClient'
+import { isServerMode } from './config'
+import { db, emitChange } from './db'
 
 export interface NotificationView extends AppNotification {
   read: boolean
@@ -37,12 +39,22 @@ export const notificationService = {
   },
 
   async markRead(id: string, userId: string): Promise<void> {
+    if (isServerMode) {
+      await apiFetch('notifications/read', { method: 'POST', body: { id } })
+      emitChange('notifications')
+      return
+    }
     const notification = await db.get('notifications', id)
     if (!notification || notification.readBy.includes(userId)) return
     await db.update('notifications', id, { readBy: [...notification.readBy, userId] })
   },
 
   async markAllRead(userId: string): Promise<void> {
+    if (isServerMode) {
+      await apiFetch('notifications/read-all', { method: 'POST', body: {} })
+      emitChange('notifications')
+      return
+    }
     const list = await this.listForUser(userId)
     await Promise.all(
       list.filter((n) => !n.read).map((n) => db.update('notifications', n.id, { readBy: [...n.readBy, userId] })),

@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { useParams, useSearchParams } from 'react-router-dom'
 import { Mic2, Plus } from 'lucide-react'
 import { useConfirm } from '@/contexts/confirm'
 import { useSession } from '@/contexts/session'
@@ -7,6 +7,7 @@ import { useRehearsals, useRepertoires } from '@/hooks/useData'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { useMutation } from '@/hooks/useMutation'
 import { formatDateShort, isUpcoming } from '@/lib/dates'
+import { cn } from '@/lib/utils'
 import { rehearsalService } from '@/services'
 import type { RehearsalDetail } from '@/types'
 import { Button, EmptyState, ErrorState, PageHeader, SkeletonList, Tabs } from '@/components/ui'
@@ -22,7 +23,15 @@ export default function RehearsalsPage() {
   const { data = [], isLoading, error, refetch } = useRehearsals()
   const { data: repertoires = [] } = useRepertoires()
   const [params, setParams] = useSearchParams()
-  const [scope, setScope] = useState<Scope>('upcoming')
+  const [picked, setScope] = useState<Scope | null>(null)
+  /** /ensaios/:id (link da notificação): mostra e destaca o ensaio */
+  const { id: focusId } = useParams()
+  const focused = focusId ? data.find((r) => r.id === focusId) : undefined
+  const scope: Scope = picked ?? (focused && !isUpcoming(focused.event.date, focused.event.startTime) ? 'past' : 'upcoming')
+
+  useEffect(() => {
+    if (focused) document.getElementById(`ensaio-${focused.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [focused])
   const [editing, setEditing] = useState<RehearsalDetail | null>(null)
 
   const creating = params.get('novo') === '1'
@@ -99,12 +108,17 @@ export default function RehearsalsPage() {
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
           {list.map((r) => (
-            <RehearsalCard
+            <div
               key={r.id}
-              rehearsal={r}
-              onEdit={can('rehearsals:write') ? () => setEditing(r) : undefined}
-              onDelete={can('rehearsals:write') ? () => void onDelete(r) : undefined}
-            />
+              id={`ensaio-${r.id}`}
+              className={cn('scroll-mt-24 rounded-2xl', r.id === focusId && 'ring-2 ring-brand-500 ring-offset-2 ring-offset-canvas')}
+            >
+              <RehearsalCard
+                rehearsal={r}
+                onEdit={can('rehearsals:write') ? () => setEditing(r) : undefined}
+                onDelete={can('rehearsals:write') ? () => void onDelete(r) : undefined}
+              />
+            </div>
           ))}
         </div>
       )}

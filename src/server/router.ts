@@ -15,6 +15,9 @@ import { hasPermission } from '../lib/permissions.js'
 import { USER_ACTIONS, adminDevices, authRoute, userAction, type UserAction } from './accounts.js'
 import { getSession, requireApproved, type Session } from './auth.js'
 import { emailProvider } from './email.js'
+import { notificationsRoute } from './notifications.js'
+
+const NOTIFICATION_ACTIONS = new Set(['config', 'subscribe', 'devices', 'read', 'read-all', 'preferences', 'dispatch', 'test', 'stats'])
 import { deleteFile, listFiles, uploadFile } from './files.js'
 import { ApiError, json, noContent, readJson, toErrorResponse } from './http.js'
 import { RESOURCES, resolveResource, type DbRow, type Resource, type ResourceContext } from './resources.js'
@@ -116,6 +119,14 @@ async function route(ctx: RequestContext): Promise<Response> {
       return filesRoute(ctx, id)
   }
 
+  // Notificações: ações próprias (push, preferências, leitura); o restante segue o CRUD genérico
+  const listAll = head === 'notifications' && id === undefined && ctx.method === 'GET' && [...ctx.url.searchParams.keys()].every((k) => k === 'path')
+  if (head === 'notifications' && !action && (listAll || (id !== undefined && NOTIFICATION_ACTIONS.has(id)))) {
+    return notificationsRoute(ctx, id, rest[0] ?? undefined)
+  }
+  if (head === 'notifications' && id === 'devices' && action && rest.length === 0) {
+    return notificationsRoute(ctx, 'devices', action)
+  }
   if (head === 'users' && id && action === 'devices' && (rest.length === 0 || (rest.length === 2 && rest[1] === 'revoke'))) {
     return adminDevices(ctx, id, rest[0])
   }

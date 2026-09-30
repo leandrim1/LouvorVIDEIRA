@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { clearQueryCache } from '@/hooks/useQuery'
 import { apiFetch, onUnauthorized } from '@/services/apiClient'
 import { authService, type SignInResult } from '@/services/authService'
+import { pushService } from '@/services/pushService'
 import { isServerMode } from '@/services/config'
 import { TABLES, emitChange } from '@/services/db'
 import type { User } from '@/types'
@@ -101,6 +102,7 @@ function ServerAuthProvider({ children }: { children: ReactNode }) {
 
   const signOutEverywhere = useCallback(async () => {
     try {
+      await pushService.detach()
       await apiFetch('auth/logout-all', { method: 'POST', body: {} })
     } finally {
       apply(null)
@@ -112,6 +114,8 @@ function ServerAuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(async () => {
     try {
+      // Este aparelho deixa de receber os avisos da conta que saiu
+      await pushService.detach()
       await apiFetch('auth/logout', { method: 'POST', body: {} })
     } finally {
       apply(null)

@@ -2,6 +2,8 @@ import { formatWeekday, isUpcoming } from '@/lib/dates'
 import { generateId } from '@/lib/utils'
 import type { ScheduleDetail, ScheduleInput } from '@/types'
 import { DataError, NotFoundError, db } from './db'
+import { isServerMode } from './config'
+import { dispatchNotification } from './pushService'
 import { notificationService } from './notificationService'
 import { buildScheduleDetail, byEventDate } from './relations'
 
@@ -53,7 +55,10 @@ export const scheduleService = {
       [...unique.values()].map((m) => ({ id: generateId(), scheduleId: id!, memberId: m.memberId, role: m.role })),
     )
 
-    if (isUpcoming(event.date, event.startTime)) {
+    if (isServerMode) {
+      // O servidor avisa cada escalado com a sua função (e só "escala atualizada" para quem já sabia)
+      dispatchNotification(scheduleId ? 'SCHEDULE_UPDATED' : 'SCHEDULE_CREATED', id)
+    } else if (isUpcoming(event.date, event.startTime)) {
       const users = await db.list('users')
       const newMembers = new Set([...unique.values()].map((m) => m.memberId).filter((mid) => !previousMemberIds.has(mid)))
       await Promise.all(

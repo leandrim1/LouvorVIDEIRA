@@ -3,6 +3,9 @@ import { Outlet, ScrollRestoration, useLocation } from 'react-router-dom'
 import { CommandPaletteContext } from '@/contexts/commandPalette'
 import { useNotifications } from '@/hooks/useData'
 import { CommandPalette } from '@/components/search/CommandPalette'
+import { NotificationPrompt } from '@/components/notifications/NotificationPrompt'
+import { PushBridge } from '@/components/notifications/PushBridge'
+import { isServerMode } from '@/services/config'
 import { LoadingState } from '@/components/ui'
 import { BottomNav } from './BottomNav'
 import { Sidebar } from './Sidebar'
@@ -57,6 +60,12 @@ export function AppLayout() {
         </div>
         <BottomNav unread={unread} />
         <CommandPalette open={searchOpen} onClose={close} />
+        {isServerMode && (
+          <>
+            <PushBridge />
+            <NotificationPrompt />
+          </>
+        )}
         {import.meta.env.VITE_ROUTER === 'memory' ? <ScrollToTop /> : <ScrollRestoration />}
       </div>
     </CommandPaletteContext.Provider>

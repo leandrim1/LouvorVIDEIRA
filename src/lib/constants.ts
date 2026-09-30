@@ -8,7 +8,7 @@ import type {
   SongVideoType,
   UserRole,
   VoiceType,
-} from '@/types'
+} from '../types/index'
 
 export const APP_NAME = 'Louvor Videira'
 

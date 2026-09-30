@@ -464,11 +464,75 @@ export const notifications = pgTable(
     type: notificationType('type').notNull().default('system'),
     title: text('title').notNull(),
     message: text('message').notNull(),
+    /** URL de destino dentro do sistema (ex.: /repertorios/:id) */
     link: text('link'),
     readBy: uuid('read_by').array().notNull().default(sql`'{}'`),
+    /** Evento de origem: REPERTOIRE_CREATED, REHEARSAL_UPDATED, SCHEDULE_CREATED, GENERAL… */
+    event: text('event'),
+    entityType: text('entity_type'),
+    entityId: uuid('entity_id'),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
+    /** Quando o push foi enviado (nulo = só na central de notificações) */
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    /** Evita notificações duplicadas para a mesma pessoa e o mesmo acontecimento */
+    dedupeKey: text('dedupe_key').unique(),
     createdAt: createdAt(),
   },
-  (t) => [index('notifications_user_idx').on(t.userId, t.createdAt)],
+  (t) => [index('notifications_user_idx').on(t.userId, t.createdAt), index('notifications_entity_idx').on(t.entityType, t.entityId)],
+)
+
+/** Preferências de notificação por pessoa (sem linha = tudo ativado) */
+export const notificationPreferences = pgTable('notification_preferences', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  repertoires: boolean('repertoires').notNull().default(true),
+  repertoireUpdates: boolean('repertoire_updates').notNull().default(true),
+  rehearsals: boolean('rehearsals').notNull().default(true),
+  schedules: boolean('schedules').notNull().default(true),
+  general: boolean('general').notNull().default(true),
+  /** Desligado = só a central de notificações, sem push em nenhum aparelho */
+  pushEnabled: boolean('push_enabled').notNull().default(true),
+  updatedAt: updatedAt(),
+})
+
+/** Uma inscrição Web Push por aparelho/navegador (uma pessoa pode ter várias) */
+export const pushSubscriptions = pgTable(
+  'push_subscriptions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    endpoint: text('endpoint').notNull().unique(),
+    p256dh: text('p256dh').notNull(),
+    auth: text('auth').notNull(),
+    deviceName: text('device_name').notNull().default(''),
+    browser: text('browser').notNull().default(''),
+    platform: text('platform').notNull().default(''),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+    /** Preenchido quando a pessoa remove o aparelho (não é reativado automaticamente) */
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    active: boolean('active').notNull().default(true),
+  },
+  (t) => [index('push_subscriptions_user_idx').on(t.userId, t.active)],
+)
+
+/** Resultado de cada envio push (um registro por notificação e aparelho) */
+export const notificationDeliveryLogs = pgTable(
+  'notification_delivery_logs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    notificationId: uuid('notification_id').references(() => notifications.id, { onDelete: 'cascade' }),
+    subscriptionId: uuid('subscription_id').references(() => pushSubscriptions.id, { onDelete: 'set null' }),
+    /** SENT, FAILED, EXPIRED ou REMOVED */
+    status: text('status').notNull(),
+    error: text('error'),
+    sentAt: timestamp('sent_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('delivery_logs_status_idx').on(t.status, t.sentAt), index('delivery_logs_notification_idx').on(t.notificationId)],
 )
 
 /** Metadados de arquivos guardados no Vercel Blob (o binário nunca vai para o banco) */

@@ -2,6 +2,8 @@ import { formatWeekday, isUpcoming, relativeDayLabel } from '@/lib/dates'
 import { generateId } from '@/lib/utils'
 import type { RehearsalDetail, RehearsalInput } from '@/types'
 import { NotFoundError, db } from './db'
+import { isServerMode } from './config'
+import { dispatchNotification } from './pushService'
 import { notificationService } from './notificationService'
 import { buildRehearsalDetail, byEventDate } from './relations'
 
@@ -42,7 +44,7 @@ export const rehearsalService = {
   async create(input: RehearsalInput): Promise<void> {
     const now = new Date().toISOString()
     const event = await db.insert('events', { id: generateId(), ...eventFields(input), createdAt: now, updatedAt: now })
-    await db.insert('rehearsals', {
+    const rehearsal = await db.insert('rehearsals', {
       id: generateId(),
       eventId: event.id,
       repertoireId: input.repertoireId,
@@ -50,7 +52,9 @@ export const rehearsalService = {
       createdAt: now,
       updatedAt: now,
     })
-    if (isUpcoming(event.date, event.startTime)) {
+    if (isServerMode) {
+      dispatchNotification('REHEARSAL_CREATED', rehearsal.id)
+    } else if (isUpcoming(event.date, event.startTime)) {
       const when = relativeDayLabel(event.date)
       const day = when === 'Amanhã' || when === 'Hoje' ? when.toLowerCase() : formatWeekday(event.date).toLowerCase()
       await notificationService.create({
@@ -68,6 +72,7 @@ export const rehearsalService = {
     const now = new Date().toISOString()
     await db.update('events', rehearsal.eventId, { ...eventFields(input), updatedAt: now })
     await db.update('rehearsals', id, { repertoireId: input.repertoireId, notes: input.notes.trim(), updatedAt: now })
+    dispatchNotification('REHEARSAL_UPDATED', id)
   },
 
   /** Remove o ensaio e o evento correspondente no calendário */

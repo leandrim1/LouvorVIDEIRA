@@ -10,7 +10,7 @@
 import { and, count, eq, inArray, isNotNull, isNull, lt, ne, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import type { Database } from '../db/index.js'
-import { notifications, sessions, users } from '../db/schema.js'
+import { sessions, users } from '../db/schema.js'
 import { hasPermission } from '../lib/permissions.js'
 import {
   clearSessionCookie,
@@ -30,6 +30,7 @@ import {
   type Session,
   type UserRow,
 } from './auth.js'
+import { notifyAdmins as notifyAdminsAbout } from './notifications.js'
 import { approvalEmail, assertEmailConfigured, rejectionEmail, sendEmail, verificationEmail } from './email.js'
 import { EMAIL_PROBLEM_MESSAGES, checkEmailAddress, isValidEmailFormat } from './emailValidation.js'
 import { ApiError, json, noContent, readJson } from './http.js'
@@ -486,22 +487,18 @@ async function openSession(db: Database, user: UserRow, request: Request, metada
   return [['set-cookie', sessionCookie(token, request)]]
 }
 
-/** Aviso no sino dos administradores quando alguém confirma o e-mail */
+/** Aviso (sino + push) para os administradores quando alguém confirma o e-mail */
 async function notifyAdmins(db: Database, user: UserRow) {
-  const admins = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(and(eq(users.role, 'admin'), eq(users.status, 'APPROVED')))
-  if (admins.length === 0) return
-  await db.insert(notifications).values(
-    admins.map((admin) => ({
-      userId: admin.id,
-      type: 'system' as const,
+  try {
+    await notifyAdminsAbout(db, {
       title: 'Nova solicitação de acesso',
       message: `${user.name} confirmou o e-mail e aguarda aprovação.`,
       link: '/admin',
-    })),
-  )
+      dedupeKey: `ACCESS_REQUEST:${user.id}:${user.emailVerifiedAt?.getTime() ?? Date.now()}`,
+    })
+  } catch (error) {
+    console.error('[notificações] aviso aos administradores não enviado:', error)
+  }
 }
 
 /* ------------------------------------------------------------------ */

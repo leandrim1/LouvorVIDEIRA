@@ -47,6 +47,7 @@ Para usar o banco Neon da Vercel no desenvolvimento, crie `.env.local` com a `DA
 | `npm run db:migrate` | Aplica as migrations pendentes |
 | `npm run db:push` | Sincroniza o schema direto no banco, sem migration (apenas protótipos) |
 | `npm run db:studio` | Abre o Drizzle Studio para ver e editar os dados |
+| `npm run push:keys` | Gera o par de chaves VAPID das notificações push |
 | `npm run db:seed` | Carrega os dados de desenvolvimento (`-- --reset` apaga e recria) |
 
 Os comandos `db:*` usam a `DATABASE_URL` do `.env.local`; sem ela, usam o banco local `.pglite/`. Pare o `npm run dev` antes de rodar `db:*` no banco local, pois ele só aceita um processo por vez.
@@ -145,6 +146,11 @@ src/
 | `/api/auth/login-verify`, `login-resend` | POST | Código de acesso (etapa 2 do login) e reenvio |
 | `/api/auth/devices`, `devices-revoke`, `devices-revoke-current`, `devices-revoke-all`, `logout-all` | GET, POST | Dispositivos confiáveis da própria conta |
 | `/api/users/:id/approve`, `reject`, `suspend`, `reset-password` | POST | Aprovar, recusar, suspender e senha temporária (administrador) |
+| `/api/notifications` (GET), `/api/notifications/read`, `read-all` | GET, POST | Central de notificações |
+| `/api/notifications/subscribe` | POST, DELETE | Inscrição Web Push deste aparelho |
+| `/api/notifications/preferences` | GET, PUT | Preferências de notificação |
+| `/api/notifications/devices`, `/api/notifications/devices/:id` | GET, DELETE | Aparelhos com push |
+| `/api/notifications/config`, `dispatch`, `test`, `stats` | GET, POST | Chave pública VAPID, disparo de eventos, teste e estatísticas (admin) |
 | `/api/users/:id/devices`, `/api/users/:id/devices/:deviceId/revoke` | GET, POST | Dispositivos de um usuário (administrador) |
 | `/api/batch` | POST | Até 30 leituras em uma chamada |
 | `/api/export` | GET | Backup em JSON (administrador) |
@@ -214,6 +220,48 @@ E-mail + senha → dispositivo confiável? → sim: entra direto
 
 O login usa o mesmo envio de e-mails (Gmail ou Resend, e `APP_URL`). Sem ele, ninguém consegue entrar em um dispositivo novo.
 
+## Notificações push
+
+```
+Repertório/ensaio/escala salvo → servidor identifica as pessoas relacionadas → cria a notificação de cada uma (sem duplicar)
+→ Web Push com VAPID para cada aparelho ativo → service worker (public/sw.js) → notificação nativa → toque abre o conteúdo
+```
+
+- **Quem recebe:**
+  - **Repertório publicado:** a escala daquele culto e os vocais das músicas. Sem escala nem vocais, a equipe toda.
+  - **Ensaio:** os integrantes do repertório ensaiado. Sem repertório vinculado, a equipe toda.
+  - **Escala:** cada pessoa escalada, com a função. Ex.: "Você foi escalado como Guitarra para Culto de Celebração".
+  - **Administradores:** as novas solicitações de acesso.
+  - Quem fez a alteração não recebe o próprio aviso.
+- **Sem duplicar:** cada aviso tem uma chave única por pessoa e acontecimento. Alterações repetidas em 10 minutos geram um único aviso. No aparelho, a notificação usa uma `tag` que substitui a anterior.
+- **Funciona com o site fechado:** o push é entregue ao service worker pelo serviço de push do navegador (Chrome/Android, Edge, Firefox, Safari no macOS e iPhone/iPad com iOS 16.4+ **com o app adicionado à Tela de Início**).
+- **Ao tocar:** marca como lida e abre `/repertorios/:id`, `/ensaios/:id` ou `/escalas/:id`. Se o app já estiver aberto, foca a janela. Sem login, a tela de entrada aparece e depois o conteúdo abre.
+- **Central de notificações:** sino com contador, lista com não lidas destacadas, "Marcar todas como lidas".
+- **Configurações → Notificações:**
+  - ativar/desativar neste aparelho e enviar notificação de teste;
+  - preferências: Repertórios, Alterações em repertórios, Ensaios, Escalas, Avisos gerais e Notificações push. Push desligado mantém só a central;
+  - lista de aparelhos com "Remover".
+- **Convite:** depois do login aparece "Ative as notificações" com **Ativar notificações** / **Agora não**. "Agora não" não pergunta de novo por 30 dias e nunca bloqueia o uso. No iPhone fora da Tela de Início, explica como instalar.
+- **Administração:** usuários com notificações, dispositivos, envios e falhas.
+- **Segurança:**
+  - a chave privada VAPID fica só no servidor;
+  - a inscrição é sempre da pessoa logada, e o aparelho passa para a conta que entrar nele;
+  - só endereços dos serviços de push oficiais são aceitos;
+  - ao sair, o aparelho deixa de receber os avisos da conta.
+- **Falhas:** inscrições expiradas (404/410) são desativadas automaticamente. Falhas não impedem o envio aos outros aparelhos nem a criação do repertório/ensaio/escala. Tudo fica em `notification_delivery_logs` (`SENT`, `FAILED`, `EXPIRED`, `REMOVED`).
+- **PWA:** `manifest.webmanifest` (Louvor Videira / Louvor, `standalone`, ícones e atalhos) e `sw.js` sem cache de páginas (o site sempre carrega a versão publicada).
+
+### Configurar as chaves VAPID
+1. Gere o par de chaves **uma única vez**:
+   ```bash
+   npm run push:keys
+   ```
+2. Na Vercel, em **Settings → Environment Variables**, crie `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` e `VAPID_SUBJECT` (ex.: `mailto:adminlouvorvideira@gmail.com`) e faça um **Redeploy**.
+3. Rode a migration `0003_push_notifications.sql`.
+4. Confira em `/api/notifications/config`: deve aparecer `"enabled":true`.
+
+Não troque as chaves depois: os aparelhos inscritos com a chave antiga deixam de receber e precisam ativar de novo.
+
 ## Banco de dados (Neon + Drizzle)
 
 ### Tabelas
@@ -242,6 +290,7 @@ As migrations ficam em `src/db/migrations/` e são aplicadas **manualmente**, nu
 | --- | --- |
 | `0000_initial_schema.sql` | Tabelas iniciais |
 | `0001_email_verification.sql` | Status da conta, confirmação de e-mail, aprovação/recusa e limite de tentativas. Contas que já tinham acesso continuam liberadas |
+| `0003_push_notifications.sql` | Notificações push: `push_subscriptions`, `notification_preferences`, `notification_delivery_logs` e novas colunas em `notifications` |
 | `0002_login_otp_devices.sql` | Código de acesso por e-mail (`otp_codes`), dispositivos confiáveis (`device_tokens`) e eventos de segurança (`security_events`) |
 
 Se você aplica as migrations colando o SQL no **SQL Editor do Neon**, cole cada arquivo novo, em ordem, uma única vez. Ao alterar o schema:
@@ -289,6 +338,7 @@ Depois, a cada mudança no schema: `npm run db:generate` → revise o SQL → `n
 | `GMAIL_USER`, `GMAIL_APP_PASSWORD` | Servidor | Gmail **ou** Resend | Conta do Gmail e senha de app (envio sem domínio próprio) |
 | `RESEND_API_KEY`, `EMAIL_FROM` | Servidor | Gmail **ou** Resend | Chave do Resend e remetente com domínio verificado |
 | `APP_URL` | Servidor | Sim | Endereço do site usado nos links dos e-mails |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Servidor | Para push | Chaves Web Push (`npm run push:keys`) e contato do responsável |
 | `ADMIN_EMAIL` | Servidor | Não | Restringe quem cria a primeira conta de administrador |
 | `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD` | Local | Não | Administrador criado pelo seed de desenvolvimento |
 | `VITE_DATA_PROVIDER` | Build | Não | `demo` gera a versão de demonstração sem banco |
@@ -304,4 +354,5 @@ Depois, a cada mudança no schema: `npm run db:generate` → revise o SQL → `n
 - integridade dos dados de demonstração;
 - **API contra um PostgreSQL real em memória** (mesmas migrations e seed): login, primeiro administrador, aprovação, permissões no servidor, tentativa de elevar o próprio nível de acesso, validação (400), conflitos (409), 404, CSRF, favoritos pessoais, senha temporária, logout e upload sem Blob configurado;
 - **cadastro e confirmação de e-mail** (`accounts.server.test.ts`): formatos inválidos, descartáveis e domínio sem MX, e-mail já existente, conteúdo do e-mail, link, token expirado e reutilizado, reenvio e limites, login em cada situação, aprovação bloqueada sem confirmação, aprovação, recusa, suspensão, troca de e-mail e segurança dos tokens;
+- **notificações push** (`push.server.test.ts`): inscrição por aparelho, destinatários de repertório/ensaio/escala, mensagem personalizada, conteúdo criptografado com VAPID e descriptografado com a chave do aparelho, sem duplicar, preferências, leitura, aparelho removido, inscrição expirada, falha de envio, avisos aos administradores e estatísticas;
 - **login com código e dispositivos** (`loginOtp.server.test.ts`): código correto, incorreto, expirado, reutilizado e bloqueado, reenvio e limites, dispositivo confiável, login sem código, outro dispositivo, revogar um/todos, sair, sair de todos, sessão e confiança vencidas, token inválido, adulterado, de outra pessoa e reutilizado.

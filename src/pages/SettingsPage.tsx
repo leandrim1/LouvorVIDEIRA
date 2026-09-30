@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom'
 import { Database, Download, Monitor, Moon, RotateCcw, Sun, UserCog } from 'lucide-react'
 import { AccountCard } from '@/components/auth/AccountCard'
 import { SecurityCard } from '@/components/auth/SecurityCard'
+import { NotificationSettingsCard } from '@/components/notifications/NotificationSettingsCard'
 import { useAuth } from '@/contexts/auth'
 import { useConfirm } from '@/contexts/confirm'
 import { useSession } from '@/contexts/session'
@@ -105,6 +106,7 @@ export default function SettingsPage() {
         {mode === 'server' ? (
           <>
             <AccountCard id="perfil" className="scroll-mt-24 lg:col-span-2" />
+            <NotificationSettingsCard id="notificacoes" className="scroll-mt-24 lg:col-span-2" />
             <SecurityCard className="lg:col-span-2" />
           </>
         ) : (

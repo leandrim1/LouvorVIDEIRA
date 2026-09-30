@@ -13,6 +13,7 @@ import { PERMISSION_LABELS, ROLE_PERMISSIONS, type Permission } from '@/lib/perm
 import { userService } from '@/services'
 import { AccessRequestsCard } from '@/components/auth/AccessRequestsCard'
 import { UserDevicesModal } from '@/components/auth/UserDevicesModal'
+import { PushStatsCard } from '@/components/notifications/PushStatsCard'
 import type { User, UserRole } from '@/types'
 import { Avatar, Badge, Button, Card, CardBody, CardHeader, Dropdown, EmptyState, IconButton, PageHeader, Select, SkeletonList } from '@/components/ui'
 
@@ -262,7 +263,9 @@ export default function AdminPage() {
           </Card>
         </div>
 
-        <Card className="xl:col-span-2">
+        <div className="space-y-6 xl:col-span-2">
+        {mode === 'server' && <PushStatsCard />}
+        <Card>
           <CardHeader title="Níveis de acesso" description="O que cada perfil pode fazer" />
           <CardBody className="relative overflow-x-auto pt-3">
             <table className="w-full text-left text-sm">
@@ -303,6 +306,7 @@ export default function AdminPage() {
             </table>
           </CardBody>
         </Card>
+        </div>
       </div>
       <UserDevicesModal user={devicesOf} onClose={() => setDevicesOf(null)} />
     </div>

@@ -54,7 +54,10 @@ export type Schedule = Row<typeof schema.schedules>
 export type ScheduleMember = Row<typeof schema.scheduleMembers>
 export type Rehearsal = Row<typeof schema.rehearsals>
 export type SongPreparation = Row<typeof schema.songPreparations>
-export type AppNotification = Row<typeof schema.notifications>
+type NotificationRow = Row<typeof schema.notifications>
+/** Notificação da central; os campos de origem (evento, entidade, envio) vêm do servidor */
+export type AppNotification = Omit<NotificationRow, 'dedupeKey' | 'event' | 'entityType' | 'entityId' | 'metadata' | 'sentAt'> &
+  Partial<Pick<NotificationRow, 'event' | 'entityType' | 'entityId' | 'metadata' | 'sentAt'>>
 export type StoredFile = Row<typeof schema.files>
 
 export type PreparationChecklist = Pick<SongPreparation, 'videoWatched' | 'chordsStudied' | 'keyConfirmed' | 'rehearsed'>

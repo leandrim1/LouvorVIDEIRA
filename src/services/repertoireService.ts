@@ -10,6 +10,8 @@ import type {
   RepertoireSummary,
 } from '@/types'
 import { DataError, NotFoundError, db } from './db'
+import { isServerMode } from './config'
+import { dispatchNotification } from './pushService'
 import { notificationService } from './notificationService'
 import { buildRehearsalDetail, buildRepertoireSummary, buildScheduleDetail, byEventDate } from './relations'
 
@@ -57,8 +59,10 @@ async function syncSongs(repertoireId: string, input: RepertoireInput) {
   await db.insertMany('repertoire_songs', toInsert)
 }
 
-async function notifyPublished(repertoire: Repertoire, event: ChurchEvent) {
+/** Repertório publicado: o servidor avisa (central + push) os integrantes relacionados */
+async function notifyPublished(repertoire: Repertoire, event: ChurchEvent, kind: 'created' | 'updated' = 'created') {
   if (repertoire.status !== 'published' || !isUpcoming(event.date, event.startTime)) return
+  if (isServerMode) return dispatchNotification(kind === 'created' ? 'REPERTOIRE_CREATED' : 'REPERTOIRE_UPDATED', repertoire.id)
   await notificationService.create({
     type: 'repertoire',
     title: 'Novo repertório',
@@ -176,14 +180,14 @@ export const repertoireService = {
       updatedAt: now,
     })
     await syncSongs(id, input)
-    if (existing.status === 'draft' && repertoire.status === 'published') await notifyPublished(repertoire, event)
+    if (repertoire.status === 'published') await notifyPublished(repertoire, event, existing.status === 'draft' ? 'created' : 'updated')
     return repertoire
   },
 
   async setStatus(id: string, status: Repertoire['status']): Promise<void> {
     const repertoire = await db.update('repertoires', id, { status, updatedAt: new Date().toISOString() })
     const event = await db.get('events', repertoire.eventId)
-    if (event && status === 'published') await notifyPublished(repertoire, event)
+    if (event && status === 'published') await notifyPublished(repertoire, event, 'created')
   },
 
   /** Remove o repertório e suas músicas; o evento continua no calendário */

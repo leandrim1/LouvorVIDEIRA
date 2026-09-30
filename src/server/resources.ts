@@ -394,6 +394,12 @@ const notifications: Resource = {
   id: t.notifications.id,
   insertSchema: insertOf(t.notifications, { title: required(200), message: required(1000), link: internalLink }).omit({
     createdAt: true,
+    dedupeKey: true,
+    sentAt: true,
+    event: true,
+    entityType: true,
+    entityId: true,
+    metadata: true,
   }),
   updateSchema: updateOf(t.notifications).pick({ readBy: true }),
   managed: { createdAt: t.notifications.createdAt },

@@ -5,7 +5,12 @@
  * Nunca é usado pelas Vercel Functions.
  */
 import { setDb, type Database } from '../db/index.js'
+import { Agent } from 'node:https'
+import { allowPushHostsForTests } from './push.js'
 import { handleRequest } from './router.js'
+
+// Só no servidor de desenvolvimento e só se pedido: serviço de push local para testes ponta a ponta
+if (process.env.E2E_LOCAL_PUSH === '1') allowPushHostsForTests([/^127\.0\.0\.1:\d+$/], new Agent({ rejectUnauthorized: false }))
 
 const store = globalThis as typeof globalThis & { __louvorLocalDb?: Promise<Database> }
 
