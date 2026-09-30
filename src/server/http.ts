@@ -17,11 +17,24 @@ export type ErrorCode =
   | 'PAYLOAD_TOO_LARGE'
   | 'SERVICE_UNAVAILABLE'
   | 'INTERNAL_ERROR'
+  | 'TOO_MANY_REQUESTS'
+  | 'EMAIL_NOT_CONFIGURED'
+  | 'EMAIL_SEND_FAILED'
+  | 'EMAIL_NOT_VERIFIED'
+  | 'EMAIL_ALREADY_REGISTERED'
+  | 'VERIFICATION_PENDING'
+  | 'PENDING_APPROVAL'
+  | 'ACCOUNT_REJECTED'
+  | 'ACCOUNT_SUSPENDED'
+  | 'TOKEN_INVALID'
+  | 'TOKEN_EXPIRED'
 
 export class ApiError extends Error {
   readonly status: number
   readonly code: ErrorCode
   readonly details?: Record<string, string[]>
+  /** Segundos até poder tentar de novo (cabeçalho Retry-After) */
+  retryAfter?: number
 
   constructor(status: number, code: ErrorCode, message: string, details?: Record<string, string[]>) {
     super(message)
@@ -29,6 +42,12 @@ export class ApiError extends Error {
     this.status = status
     this.code = code
     this.details = details
+  }
+
+  static tooManyRequests(retryAfter: number, message = 'Muitas tentativas. Aguarde alguns minutos e tente novamente.') {
+    const error = new ApiError(429, 'TOO_MANY_REQUESTS', message)
+    error.retryAfter = retryAfter
+    return error
   }
 
   static badRequest = (message: string, details?: Record<string, string[]>) => new ApiError(400, 'VALIDATION_ERROR', message, details)
@@ -53,11 +72,16 @@ export function noContent(headers?: HeaderList): Response {
 }
 
 function errorResponse(error: ApiError): Response {
-  const body: { error: { code: ErrorCode; message: string; details?: Record<string, string[]> } } = {
+  const body: { error: { code: ErrorCode; message: string; details?: Record<string, string[]>; retryAfter?: number } } = {
     error: { code: error.code, message: error.message },
   }
   if (error.details) body.error.details = error.details
-  return new Response(JSON.stringify(body), { status: error.status, headers: JSON_HEADERS })
+  const headers: Record<string, string> = { ...JSON_HEADERS }
+  if (error.retryAfter) {
+    body.error.retryAfter = error.retryAfter
+    headers['retry-after'] = String(error.retryAfter)
+  }
+  return new Response(JSON.stringify(body), { status: error.status, headers })
 }
 
 /** Código de erro do PostgreSQL (Neon, PGlite ou encapsulado pelo Drizzle) */

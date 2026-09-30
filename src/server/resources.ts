@@ -10,7 +10,9 @@ import { z } from 'zod'
 import type { Database } from '../db/index.js'
 import * as t from '../db/schema.js'
 import { hasPermission, type Permission } from '../lib/permissions.js'
+import { afterEmailChange } from './accounts.js'
 import { publicUser, type Session, type UserRow } from './auth.js'
+import { isValidEmailFormat } from './emailValidation.js'
 import { ApiError } from './http.js'
 
 export interface ResourceContext {
@@ -33,6 +35,8 @@ export interface Resource {
   scope?: (ctx: ResourceContext) => SQL | undefined
   prepareInsert?: (ctx: ResourceContext, row: DbRow) => DbRow | Promise<DbRow>
   guardUpdate?: (ctx: ResourceContext, existing: DbRow, patch: DbRow) => DbRow | Promise<DbRow>
+  /** Depois de salvar (ex.: enviar a confirmação do novo e-mail) */
+  afterUpdate?: (ctx: ResourceContext, row: DbRow, existing: DbRow) => Promise<void>
   guardDelete?: (ctx: ResourceContext, existing: DbRow) => void | Promise<void>
   serialize?: (row: DbRow) => unknown
   /** Permite DELETE /api/<recurso>?filtro=… (exclusão em lote) */
@@ -93,12 +97,12 @@ async function approvedAdminCount(db: Database): Promise<number> {
   const [row] = await db
     .select({ total: count() })
     .from(t.users)
-    .where(and(eq(t.users.role, 'admin'), eq(t.users.approved, true)))
+    .where(and(eq(t.users.role, 'admin'), eq(t.users.status, 'APPROVED')))
   return row?.total ?? 0
 }
 
 async function ensureAnotherAdmin(db: Database, user: DbRow) {
-  if (user.role === 'admin' && user.approved === true && (await approvedAdminCount(db)) <= 1) {
+  if (user.role === 'admin' && user.status === 'APPROVED' && (await approvedAdminCount(db)) <= 1) {
     throw ApiError.conflict('É necessário manter pelo menos um administrador com acesso.')
   }
 }
@@ -130,26 +134,46 @@ const members: Resource = {
   canWrite: (ctx) => can(ctx, 'members:write'),
 }
 
+/**
+ * Campos da conta que só mudam pelos fluxos próprios (cadastro, confirmação do e-mail,
+ * aprovação, recusa, suspensão) e nunca por uma edição comum enviada pelo navegador.
+ */
+const ACCOUNT_FIELDS = {
+  passwordHash: true,
+  status: true,
+  emailVerified: true,
+  emailVerifiedAt: true,
+  emailVerificationTokenHash: true,
+  emailVerificationExpiresAt: true,
+  emailVerificationSentAt: true,
+  approvedAt: true,
+  approvedBy: true,
+  rejectedAt: true,
+  rejectedBy: true,
+  rejectionReason: true,
+  createdAt: true,
+  updatedAt: true,
+} as const
+
+const userEmail = z
+  .string()
+  .trim()
+  .max(254)
+  .refine(isValidEmailFormat, 'E-mail inválido')
+  .transform((v) => v.toLowerCase())
+
 const users: Resource = {
   table: t.users,
   id: t.users.id,
-  insertSchema: insertOf(t.users, { name: required(120), email: z.email('E-mail inválido').max(254) }).omit({
-    passwordHash: true,
-    createdAt: true,
-    updatedAt: true,
-  }),
-  updateSchema: updateOf(t.users, { name: required(120), email: z.email('E-mail inválido').max(254) }).omit({
-    id: true,
-    passwordHash: true,
-    createdAt: true,
-    updatedAt: true,
-  }),
+  // Convite: nasce sem senha e sem e-mail confirmado; a pessoa cria a conta e confirma o endereço
+  insertSchema: insertOf(t.users, { name: required(120), email: userEmail }).omit(ACCOUNT_FIELDS),
+  updateSchema: updateOf(t.users, { name: required(120), email: userEmail }).omit({ id: true, ...ACCOUNT_FIELDS }),
   managed: { createdAt: t.users.createdAt, updatedAt: t.users.updatedAt },
-  privateColumns: ['passwordHash'],
+  privateColumns: ['passwordHash', 'emailVerificationTokenHash', 'emailVerificationExpiresAt', 'emailVerificationSentAt'],
   canWrite: (ctx, op) => (op === 'update' ? can(ctx, 'users:manage', 'members:write') : can(ctx, 'users:manage')),
+  // Integrantes e líderes veem só as contas ativas; solicitações pendentes ficam para o administrador
+  scope: (ctx) => (can(ctx, 'users:manage') ? undefined : eq(t.users.status, 'APPROVED')),
   serialize: (row) => publicUser(row as UserRow),
-  // Convite: e-mail normalizado; a senha é criada pela própria pessoa ao se cadastrar
-  prepareInsert: (_ctx, row) => ({ ...row, email: String(row.email).toLowerCase() }),
   guardUpdate: async (ctx, existing, patch) => {
     if (!can(ctx, 'users:manage')) {
       // Líderes só sincronizam o nome ou desfazem o vínculo com um integrante removido
@@ -157,9 +181,24 @@ const users: Resource = {
       if (!allowed) throw ApiError.forbidden('Apenas administradores alteram níveis de acesso.')
       return patch
     }
-    const demotes = (patch.role !== undefined && patch.role !== 'admin') || patch.approved === false
-    if (demotes) await ensureAnotherAdmin(ctx.db, existing)
-    return typeof patch.email === 'string' ? { ...patch, email: patch.email.toLowerCase() } : patch
+    if (patch.role !== undefined && patch.role !== 'admin') await ensureAnotherAdmin(ctx.db, existing)
+    // E-mail alterado: o novo endereço precisa ser confirmado outra vez
+    if (typeof patch.email === 'string' && patch.email !== String(existing.email).toLowerCase()) {
+      if (existing.id === ctx.session.user.id) throw ApiError.forbidden('Você não pode alterar o próprio e-mail por aqui.')
+      return {
+        ...patch,
+        emailVerified: false,
+        emailVerifiedAt: null,
+        emailVerificationTokenHash: null,
+        emailVerificationExpiresAt: null,
+        emailVerificationSentAt: null,
+        ...(existing.status === 'PENDING_ADMIN_APPROVAL' ? { status: 'PENDING_EMAIL_VERIFICATION' } : {}),
+      }
+    }
+    return patch
+  },
+  afterUpdate: async (ctx, row, existing) => {
+    if (row.email !== existing.email) await afterEmailChange(ctx.db, row as UserRow)
   },
   guardDelete: async (ctx, existing) => {
     if (existing.id === ctx.session.user.id) throw ApiError.forbidden('Você não pode remover o próprio acesso.')

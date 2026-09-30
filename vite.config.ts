@@ -5,7 +5,17 @@ import react from '@vitejs/plugin-react'
 import { defineConfig, loadEnv, type Plugin, type ViteDevServer } from 'vite'
 
 /** Variáveis lidas apenas pelo servidor (nunca expostas ao navegador: não têm o prefixo VITE_) */
-const SERVER_ENV = ['DATABASE_URL', 'BLOB_READ_WRITE_TOKEN', 'ADMIN_EMAIL', 'SEED_ADMIN_EMAIL', 'SEED_ADMIN_PASSWORD']
+const SERVER_ENV = [
+  'DATABASE_URL',
+  'BLOB_READ_WRITE_TOKEN',
+  'RESEND_API_KEY',
+  'EMAIL_FROM',
+  'APP_URL',
+  'RESEND_API_URL',
+  'ADMIN_EMAIL',
+  'SEED_ADMIN_EMAIL',
+  'SEED_ADMIN_PASSWORD',
+]
 const MAX_DEV_BODY = 6 * 1024 * 1024
 
 async function toWebRequest(req: IncomingMessage): Promise<Request> {

@@ -134,7 +134,10 @@ export async function runSeed(db: Database, options: SeedOptions = {}): Promise<
         email: options.admin.email.trim().toLowerCase(),
         passwordHash: await hashPassword(options.admin.password),
         role: 'admin',
-        approved: true,
+        status: 'APPROVED',
+        emailVerified: true,
+        emailVerifiedAt: now,
+        approvedAt: now,
       })
       .returning()
     adminId = admin!.id

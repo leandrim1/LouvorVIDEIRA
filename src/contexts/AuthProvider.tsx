@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { clearQueryCache } from '@/hooks/useQuery'
 import { apiFetch, onUnauthorized } from '@/services/apiClient'
+import { authService } from '@/services/authService'
 import { isServerMode } from '@/services/config'
 import { TABLES, emitChange } from '@/services/db'
 import type { User } from '@/types'
@@ -15,7 +16,7 @@ const DEMO: AuthContextValue = {
   authUser: null,
   setupRequired: false,
   signIn: noop,
-  signUp: noop,
+  signUp: async (_name, email) => ({ email, resendAfter: 0 }),
   signOut: noop,
   changePassword: noop,
   fetchSessionUser: async () => null,
@@ -82,17 +83,8 @@ function ServerAuthProvider({ children }: { children: ReactNode }) {
     [apply],
   )
 
-  const signUp = useCallback(
-    async (name: string, email: string, password: string) => {
-      const { user } = await apiFetch<{ user: User }>('auth/signup', {
-        method: 'POST',
-        body: { name: name.trim(), email: email.trim(), password },
-      })
-      setSetupRequired(false)
-      apply(user)
-    },
-    [apply],
-  )
+  // O cadastro não abre sessão: primeiro a confirmação do e-mail, depois a aprovação
+  const signUp = useCallback((name: string, email: string, password: string) => authService.signUp(name, email, password), [])
 
   const signOut = useCallback(async () => {
     try {

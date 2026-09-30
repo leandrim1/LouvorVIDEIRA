@@ -3,53 +3,23 @@
  * migrations e o mesmo seed usados no Neon.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { setDb, type Database } from '../../db/index'
-import { openLocalDatabase } from '../../db/local'
+import type { Database } from '../../db/index'
 import { runSeed } from '../../db/seed'
-import { handleRequest } from '../router'
+import { call, lastEmailTo, login, setupDatabase, signupAndVerify, tokenFrom } from './helpers'
 
-const ORIGIN = 'http://louvor.test'
 let db: Database
 let close: () => Promise<void>
-
-interface CallOptions {
-  body?: unknown
-  cookie?: string
-  origin?: string | null
-  form?: FormData
-}
-
-async function call(method: string, path: string, options: CallOptions = {}) {
-  const headers = new Headers({ host: 'louvor.test' })
-  if (options.cookie) headers.set('cookie', options.cookie)
-  if (method !== 'GET' && options.origin !== null) headers.set('origin', options.origin ?? ORIGIN)
-  let body: FormData | string | undefined
-  if (options.form) body = options.form
-  else if (options.body !== undefined) {
-    headers.set('content-type', 'application/json')
-    body = JSON.stringify(options.body)
-  }
-  const response = await handleRequest(new Request(`${ORIGIN}/api/${path}`, { method, headers, body }))
-  const text = await response.text()
-  const json = text ? (JSON.parse(text) as { data?: any; error?: { code: string; message: string; details?: Record<string, string[]> } }) : {}
-  const setCookie = response.headers.get('set-cookie') ?? ''
-  return { status: response.status, data: json.data, error: json.error, setCookie, cookie: setCookie.split(';')[0] ?? '' }
-}
 
 let admin = ''
 let member = ''
 let memberUserId = ''
 
 beforeAll(async () => {
-  const local = await openLocalDatabase('memory://')
-  db = local.db
-  close = local.close
-  setDb(db)
+  ;({ db, close } = await setupDatabase())
   await runSeed(db)
 }, 60_000)
 
 afterAll(async () => {
-  setDb(null)
   await close()
 })
 
@@ -72,26 +42,34 @@ describe('saúde e rotas', () => {
 })
 
 describe('autenticação', () => {
-  it('primeira conta vira administrador e recebe cookie httpOnly', async () => {
+  it('primeira conta vira administrador ao confirmar o e-mail e recebe cookie httpOnly', async () => {
     const session = await call('GET', 'auth/session')
     expect(session.data).toEqual({ user: null, setupRequired: true })
 
     const res = await call('POST', 'auth/signup', { body: { name: 'Admin', email: 'Admin@Teste.dev', password: 'senha-segura-1' } })
     expect(res.status).toBe(201)
-    expect(res.data.user).toMatchObject({ role: 'admin', approved: true, email: 'admin@teste.dev', registered: true })
-    expect(res.data.user).not.toHaveProperty('passwordHash')
-    expect(res.setCookie).toMatch(/HttpOnly/)
-    expect(res.setCookie).toMatch(/SameSite=Lax/)
-    admin = res.cookie
+    expect(res.setCookie).toBe('')
+    const verify = await call('POST', 'auth/verify-email', { body: { token: tokenFrom(lastEmailTo('admin@teste.dev')) } })
+    expect(verify.data.status).toBe('APPROVED')
+
+    const ok = await login('admin@teste.dev', 'senha-segura-1')
+    expect(ok.status).toBe(200)
+    expect(ok.data.user).toMatchObject({ role: 'admin', approved: true, email: 'admin@teste.dev', registered: true, emailVerified: true })
+    expect(ok.data.user).not.toHaveProperty('passwordHash')
+    expect(ok.data.user).not.toHaveProperty('emailVerificationTokenHash')
+    expect(ok.setCookie).toMatch(/HttpOnly/)
+    expect(ok.setCookie).toMatch(/SameSite=Lax/)
+    admin = ok.cookie
   })
 
-  it('próximas contas aguardam aprovação (403 nos dados)', async () => {
-    const res = await call('POST', 'auth/signup', { body: { name: 'Integrante', email: 'membro@teste.dev', password: 'senha-segura-2' } })
-    expect(res.status).toBe(201)
-    expect(res.data.user).toMatchObject({ role: 'member', approved: false })
-    member = res.cookie
-    memberUserId = res.data.user.id
-    expect((await call('GET', 'songs', { cookie: member })).status).toBe(403)
+  it('próximas contas aguardam aprovação depois de confirmar o e-mail', async () => {
+    const verified = await signupAndVerify('Integrante', 'membro@teste.dev', 'senha-segura-2')
+    expect(verified.status).toBe('PENDING_ADMIN_APPROVAL')
+    const res = await login('membro@teste.dev', 'senha-segura-2')
+    expect(res.status).toBe(403)
+    expect(res.error?.code).toBe('PENDING_APPROVAL')
+    const users = (await call('GET', 'users', { cookie: admin })).data as { id: string; email: string }[]
+    memberUserId = users.find((u) => u.email === 'membro@teste.dev')!.id
   })
 
   it('e-mail repetido retorna 409', async () => {
@@ -122,7 +100,9 @@ describe('autenticação', () => {
 describe('seed e relacionamentos', () => {
   it('carrega os dados de desenvolvimento', async () => {
     const counts = await Promise.all(
-      ['songs', 'members', 'repertoires', 'rehearsals', 'schedules', 'notifications'].map(async (r) => (await call('GET', r, { cookie: admin })).data.length),
+      ['songs', 'members', 'repertoires', 'rehearsals', 'schedules', 'notifications?userId=null'].map(
+        async (r) => (await call('GET', r, { cookie: admin })).data.length,
+      ),
     )
     expect(counts).toEqual([15, 8, 5, 3, 3, 10])
     const events = (await call('GET', 'events', { cookie: admin })).data as { type: string; startTime: string; date: string }[]
@@ -157,9 +137,10 @@ describe('seed e relacionamentos', () => {
 
 describe('permissões verificadas no servidor', () => {
   it('administrador aprova o integrante', async () => {
-    const res = await call('PATCH', `users/${memberUserId}`, { cookie: admin, body: { approved: true } })
+    const res = await call('POST', `users/${memberUserId}/approve`, { cookie: admin, body: {} })
     expect(res.status).toBe(200)
-    expect(res.data.approved).toBe(true)
+    expect(res.data.user.approved).toBe(true)
+    member = (await login('membro@teste.dev', 'senha-segura-2')).cookie
     expect((await call('GET', 'songs', { cookie: member })).status).toBe(200)
   })
 
@@ -167,6 +148,7 @@ describe('permissões verificadas no servidor', () => {
     expect((await call('POST', 'songs', { cookie: member, body: { title: 'X', artist: 'Y', originalKey: 'G', teamKey: 'G' } })).status).toBe(403)
     const escalate = await call('PATCH', `users/${memberUserId}`, { cookie: member, body: { role: 'admin' } })
     expect(escalate.status).toBe(403)
+    expect((await call('POST', `users/${memberUserId}/approve`, { cookie: member, body: {} })).status).toBe(403)
     const me = await call('GET', 'auth/session', { cookie: member })
     expect(me.data.user.role).toBe('member')
   })
@@ -174,17 +156,29 @@ describe('permissões verificadas no servidor', () => {
   it('ignora campos que o cliente não pode definir (senha, datas)', async () => {
     const res = await call('POST', 'users', {
       cookie: admin,
-      body: { name: 'Convite', email: 'convite@teste.dev', role: 'leader', approved: true, passwordHash: 'hack', createdAt: '2000-01-01T00:00:00Z' },
+      body: {
+        name: 'Convite',
+        email: 'convite@teste.dev',
+        role: 'leader',
+        status: 'APPROVED',
+        emailVerified: true,
+        passwordHash: 'hack',
+        createdAt: '2000-01-01T00:00:00Z',
+      },
     })
     expect(res.status).toBe(201)
     expect(res.data.registered).toBe(false)
+    expect(res.data).toMatchObject({ status: 'PENDING_EMAIL_VERIFICATION', emailVerified: false, approved: false })
     expect(res.data.createdAt.startsWith('2000')).toBe(false)
   })
 
-  it('convite só é liberado após aprovação do administrador', async () => {
+  it('convite exige confirmar o e-mail e depois a aprovação do administrador', async () => {
     const res = await call('POST', 'auth/signup', { body: { name: 'Convite', email: 'convite@teste.dev', password: 'senha-segura-4' } })
     expect(res.status).toBe(201)
-    expect(res.data.user).toMatchObject({ role: 'leader', approved: false })
+    const verify = await call('POST', 'auth/verify-email', { body: { token: tokenFrom(lastEmailTo('convite@teste.dev')) } })
+    expect(verify.data.status).toBe('PENDING_ADMIN_APPROVAL')
+    const users = (await call('GET', 'users', { cookie: admin })).data as { email: string; role: string; approved: boolean }[]
+    expect(users.find((u) => u.email === 'convite@teste.dev')).toMatchObject({ role: 'leader', approved: false })
   })
 
   it('não permite remover o último administrador', async () => {
@@ -282,9 +276,9 @@ describe('senhas', () => {
     expect(res.status).toBe(200)
     expect(res.data.temporaryPassword).toHaveLength(10)
     expect((await call('GET', 'songs', { cookie: member })).status).toBe(401)
-    const login = await call('POST', 'auth/login', { body: { email: 'membro@teste.dev', password: res.data.temporaryPassword } })
-    expect(login.status).toBe(200)
-    member = login.cookie
+    const again = await login('membro@teste.dev', res.data.temporaryPassword)
+    expect(again.status).toBe(200)
+    member = again.cookie
   })
 
   it('integrante não gera senha para outros', async () => {

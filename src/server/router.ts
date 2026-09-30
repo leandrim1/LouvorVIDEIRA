@@ -6,27 +6,14 @@
  * Toda operação no banco acontece aqui, no servidor. Permissões vêm sempre da sessão
  * gravada no banco, nunca do que o navegador envia.
  */
-import { and, asc, eq, getTableColumns, inArray, isNotNull, isNull, lt, ne, sql, type SQL } from 'drizzle-orm'
+import { and, asc, eq, getTableColumns, inArray, isNull, sql, type SQL } from 'drizzle-orm'
 import type { PgColumn } from 'drizzle-orm/pg-core'
 import { z } from 'zod'
 import { getDb, type Database } from '../db/index.js'
-import { files, sessions, users } from '../db/schema.js'
+import { files } from '../db/schema.js'
 import { hasPermission } from '../lib/permissions.js'
-import {
-  clearSessionCookie,
-  createSession,
-  deleteSession,
-  dummyPasswordCheck,
-  getSession,
-  hashPassword,
-  publicUser,
-  requireApproved,
-  requireSession,
-  sessionCookie,
-  temporaryPassword,
-  verifyPassword,
-  type Session,
-} from './auth.js'
+import { USER_ACTIONS, authRoute, userAction, type UserAction } from './accounts.js'
+import { getSession, requireApproved, type Session } from './auth.js'
 import { deleteFile, listFiles, uploadFile } from './files.js'
 import { ApiError, json, noContent, readJson, toErrorResponse } from './http.js'
 import { RESOURCES, resolveResource, type DbRow, type Resource, type ResourceContext } from './resources.js'
@@ -128,9 +115,8 @@ async function route(ctx: RequestContext): Promise<Response> {
       return filesRoute(ctx, id)
   }
 
-  if (head === 'users' && id && action === 'reset-password' && rest.length === 0) {
-    if (ctx.method !== 'POST') throw methodNotAllowed()
-    return resetPassword(ctx, id)
+  if (head === 'users' && id && action && rest.length === 0 && (USER_ACTIONS as readonly string[]).includes(action)) {
+    return userAction(ctx, id, action as UserAction)
   }
 
   const found = resolveResource(head)
@@ -278,6 +264,7 @@ async function updateRow(rctx: ResourceContext, resource: Resource, id: string, 
     .where(where(rctx, resource, eq(resource.id, id)))
     .returning()) as DbRow[]
   if (!row) throw ApiError.notFound()
+  await resource.afterUpdate?.(rctx, row, existing)
   return json(serialize(resource, row))
 }
 
@@ -344,156 +331,6 @@ async function batch(ctx: RequestContext) {
     }),
   )
   return json(results)
-}
-
-/* ------------------------------------------------------------------ */
-/* Autenticação                                                        */
-/* ------------------------------------------------------------------ */
-
-const email = z.email('Informe um e-mail válido.').max(254).transform((v) => v.trim().toLowerCase())
-const password = z.string().min(8, 'A senha precisa ter pelo menos 8 caracteres.').max(200, 'Senha muito longa.')
-
-const signupSchema = z.object({
-  name: z.string().trim().min(1, 'Informe seu nome.').max(120),
-  email,
-  password,
-})
-const loginSchema = z.object({ email, password: z.string().min(1, 'Informe a senha.').max(200) })
-const passwordSchema = z.object({ currentPassword: z.string().max(200).default(''), newPassword: password })
-
-const byEmail = (value: string) => sql`lower(${users.email}) = ${value}`
-
-/** Existe um administrador com conta ativa? Se não, a primeira conta criada vira administrador. */
-async function hasActiveAdmin(db: Database) {
-  const [row] = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(and(eq(users.role, 'admin'), eq(users.approved, true), isNotNull(users.passwordHash)))
-    .limit(1)
-  return Boolean(row)
-}
-
-async function authRoute(ctx: RequestContext, action: string | undefined): Promise<Response> {
-  const { db, request } = ctx
-  const expect = (method: string) => {
-    if (ctx.method !== method) throw methodNotAllowed()
-  }
-
-  switch (action) {
-    case 'session': {
-      expect('GET')
-      const session = await ctx.session()
-      return json({
-        user: session ? publicUser(session.user) : null,
-        setupRequired: !(await hasActiveAdmin(db)),
-      })
-    }
-
-    case 'signup': {
-      expect('POST')
-      const input = signupSchema.parse(await readJson(request))
-      const [existing] = await db.select().from(users).where(byEmail(input.email)).limit(1)
-      if (existing?.passwordHash) throw ApiError.conflict('Este e-mail já tem conta. Entre com sua senha.')
-
-      const bootstrap = !(await hasActiveAdmin(db))
-      const allowedAdmin = process.env.ADMIN_EMAIL?.trim().toLowerCase()
-      if (bootstrap && allowedAdmin && allowedAdmin !== input.email) {
-        throw ApiError.forbidden('O primeiro acesso é reservado ao administrador configurado no servidor.')
-      }
-      const passwordHash = await hashPassword(input.password)
-
-      let user
-      if (existing) {
-        // Convite: a conta é ligada ao cadastro existente, mas o acesso só é liberado
-        // pelo administrador (evita que alguém assuma o convite de outra pessoa)
-        ;[user] = await db
-          .update(users)
-          .set({
-            passwordHash,
-            name: existing.name || input.name,
-            approved: bootstrap,
-            ...(bootstrap ? { role: 'admin' as const } : {}),
-            updatedAt: new Date(),
-          })
-          .where(and(eq(users.id, existing.id), isNull(users.passwordHash)))
-          .returning()
-        if (!user) throw ApiError.conflict('Este e-mail já tem conta. Entre com sua senha.')
-      } else {
-        ;[user] = await db
-          .insert(users)
-          .values({
-            name: input.name,
-            email: input.email,
-            passwordHash,
-            role: bootstrap ? 'admin' : 'member',
-            approved: bootstrap,
-          })
-          .returning()
-      }
-      if (!user) throw new Error('Falha ao criar o usuário')
-
-      const token = await createSession(db, user.id, request)
-      return json({ user: publicUser(user) }, 201, { 'set-cookie': sessionCookie(token, request) })
-    }
-
-    case 'login': {
-      expect('POST')
-      const input = loginSchema.parse(await readJson(request))
-      const [user] = await db.select().from(users).where(byEmail(input.email)).limit(1)
-      const valid = user?.passwordHash
-        ? await verifyPassword(input.password, user.passwordHash)
-        : await dummyPasswordCheck(input.password).then(() => false)
-      if (!user || !valid) throw ApiError.unauthorized('E-mail ou senha incorretos.')
-
-      await db.delete(sessions).where(and(eq(sessions.userId, user.id), lt(sessions.expiresAt, new Date())))
-      const token = await createSession(db, user.id, request)
-      return json({ user: publicUser(user) }, 200, { 'set-cookie': sessionCookie(token, request) })
-    }
-
-    case 'logout': {
-      expect('POST')
-      const session = await ctx.session()
-      if (session) await deleteSession(db, session.sessionId)
-      return noContent({ 'set-cookie': clearSessionCookie(request) })
-    }
-
-    case 'password': {
-      expect('POST')
-      const session = requireSession(await ctx.session())
-      const input = passwordSchema.parse(await readJson(request))
-      const current = session.user.passwordHash
-      if (current && !(await verifyPassword(input.currentPassword, current))) {
-        throw ApiError.badRequest('Senha atual incorreta.', { currentPassword: ['Senha atual incorreta.'] })
-      }
-      if (input.currentPassword === input.newPassword) {
-        throw ApiError.badRequest('A nova senha precisa ser diferente da atual.', { newPassword: ['Use uma senha diferente.'] })
-      }
-      await db
-        .update(users)
-        .set({ passwordHash: await hashPassword(input.newPassword), updatedAt: new Date() })
-        .where(eq(users.id, session.user.id))
-      // Encerra as sessões em outros aparelhos
-      await db.delete(sessions).where(and(eq(sessions.userId, session.user.id), ne(sessions.id, session.sessionId)))
-      return noContent()
-    }
-  }
-  throw ApiError.notFound('Rota não encontrada.')
-}
-
-/** POST /api/users/:id/reset-password — o administrador gera uma senha temporária */
-async function resetPassword(ctx: RequestContext, id: string) {
-  const session = requireApproved(await ctx.session())
-  if (!hasPermission(session.user.role, 'users:manage')) throw ApiError.forbidden()
-  if (!UUID.test(id)) throw ApiError.notFound('Usuário não encontrado.')
-  const newPassword = temporaryPassword(10)
-  const [user] = await ctx.db
-    .update(users)
-    .set({ passwordHash: await hashPassword(newPassword), updatedAt: new Date() })
-    .where(eq(users.id, id))
-    .returning()
-  if (!user) throw ApiError.notFound('Usuário não encontrado.')
-  if (user.id !== session.user.id) await ctx.db.delete(sessions).where(eq(sessions.userId, user.id))
-  return json({ user: publicUser(user), temporaryPassword: newPassword })
 }
 
 /* ------------------------------------------------------------------ */

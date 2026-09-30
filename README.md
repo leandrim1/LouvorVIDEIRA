@@ -32,7 +32,7 @@ npm install
 npm run dev        # http://localhost:5173 (site + API)
 ```
 
-Sem nenhuma configuração, `npm run dev` já funciona: a API usa um **PostgreSQL local** (PGlite, gravado em `.pglite/`), aplica as migrations e carrega os dados de exemplo. A primeira conta criada no site vira o **administrador**.
+Sem nenhuma configuração, `npm run dev` já funciona: a API usa um **PostgreSQL local** (PGlite, gravado em `.pglite/`), aplica as migrations e carrega os dados de exemplo. Para entrar localmente, defina `SEED_ADMIN_EMAIL` e `SEED_ADMIN_PASSWORD` no `.env.local` **antes** do primeiro `npm run dev` (o administrador é criado junto com os dados). Criar contas pelo site exige o envio de e-mails configurado (veja [Cadastro e confirmação de e-mail](#cadastro-e-confirmação-de-e-mail)).
 
 Para usar o banco Neon da Vercel no desenvolvimento, crie `.env.local` com a `DATABASE_URL` (veja [Banco de dados](#banco-de-dados-neon--drizzle)).
 
@@ -101,7 +101,11 @@ src/
 ├── server/
 │   ├── router.ts     # Rotas da API, CRUD genérico, lote de leituras, exportação
 │   ├── resources.ts  # Validação Zod e regras de permissão por tabela
-│   ├── auth.ts       # Senhas (scrypt), sessões e cookie httpOnly
+│   ├── auth.ts       # Senhas (scrypt), sessões, cookie httpOnly e token de confirmação
+│   ├── accounts.ts   # Cadastro, confirmação do e-mail, login, aprovação, recusa e suspensão
+│   ├── email.ts      # Envio pelo Resend e modelos dos e-mails
+│   ├── emailValidation.ts # Formato, domínios descartáveis e registros MX
+│   ├── rateLimit.ts  # Limite de tentativas (guardado no banco)
 │   ├── files.ts      # Upload para o Vercel Blob
 │   ├── http.ts       # Respostas e erros padronizados
 │   └── dev.ts        # API no `npm run dev`
@@ -137,8 +141,8 @@ src/
 | `/api/favorites`, `/api/song-views` | GET, POST, DELETE | Favoritos e histórico (cada pessoa vê só os seus) |
 | `/api/song-preparations` | GET, POST, PATCH, DELETE | Preparação individual |
 | `/api/files` | GET, POST (multipart), DELETE | Arquivos no Vercel Blob |
-| `/api/auth/session`, `signup`, `login`, `logout`, `password` | GET, POST | Login e senha |
-| `/api/users/:id/reset-password` | POST | Senha temporária (administrador) |
+| `/api/auth/session`, `signup`, `verify-email`, `resend-verification`, `change-email`, `login`, `logout`, `password` | GET, POST | Cadastro, confirmação do e-mail, login e senha |
+| `/api/users/:id/approve`, `reject`, `suspend`, `reset-password` | POST | Aprovar, recusar, suspender e senha temporária (administrador) |
 | `/api/batch` | POST | Até 30 leituras em uma chamada |
 | `/api/export` | GET | Backup em JSON (administrador) |
 | `/api/health` | GET | Verifica a conexão com o banco |
@@ -152,9 +156,34 @@ Listagens aceitam filtros por coluna (`/api/songs?artist=…`, `?memberId=null`)
 - As **permissões são verificadas no servidor** com base na sessão gravada no banco, nunca no que o navegador envia. Integrantes só alteram a própria preparação, favoritos, observações e leitura de notificações.
 - Senhas com **scrypt**; a sessão é um token aleatório em cookie `httpOnly`/`SameSite=Lax` (`Secure` em HTTPS), e o banco guarda apenas o hash dele.
 - Requisições que alteram dados precisam vir do próprio site (proteção contra CSRF).
+- Limite de tentativas (guardado no banco, vale entre as funções): login por IP e por e-mail, cadastros por IP, e-mails de confirmação por IP e por endereço (60 s entre envios, no máximo 5 por hora).
 - Mensagens de erro nunca expõem detalhes do banco.
 - Arquivos: tipo identificado pelo conteúdo (JPG, PNG, WEBP, GIF, PDF, MP3, M4A), limite de 4 MB, nome gerado pelo servidor. O binário vai para o Vercel Blob; o banco guarda só URL e metadados.
 - A conexão usa o driver HTTP do Neon: cada requisição é independente, sem conexões persistentes abertas pelas funções.
+
+## Cadastro e confirmação de e-mail
+
+```
+Criar conta → e-mail de confirmação → link confirmado → aguardando aprovação → administrador aprova → login
+```
+
+1. **Validação do endereço** (servidor): formato, bloqueio de e-mails temporários/descartáveis (`src/server/emailValidation.ts`) e checagem dos registros MX do domínio. Isso **não** confirma o e-mail; só evita endereços claramente inválidos.
+2. **Confirmação real:** o sistema envia pelo **Resend** um link `/verify-email?token=…`. O token tem 256 bits, vale **24 horas**, é de **uso único** e o banco guarda só o **hash SHA-256** dele. Um novo envio invalida o link anterior.
+3. **Só depois** da confirmação (`email_verified = true`) a conta passa para `PENDING_ADMIN_APPROVAL` e aparece em **Administração → Solicitações de acesso**, com aviso no sino dos administradores. O botão **Aprovar** fica desabilitado enquanto o e-mail não é confirmado (e o servidor também recusa).
+4. **Aprovar** envia o e-mail "Seu acesso foi aprovado". **Recusar** permite informar o motivo e, opcionalmente, avisar por e-mail. **Suspender** encerra as sessões na hora.
+5. **Login:** senha correta + e-mail confirmado + conta `APPROVED`. Caso contrário, a tela explica a situação (e-mail não confirmado, aguardando aprovação, recusado ou suspenso). A situação só é revelada para quem acertou a senha.
+6. **Troca de e-mail:** antes da aprovação, a própria pessoa corrige o endereço na tela "Verifique seu e-mail" (com a senha). Se o administrador alterar o e-mail de alguém, o novo endereço precisa ser confirmado outra vez.
+
+Status possíveis: `PENDING_EMAIL_VERIFICATION`, `PENDING_ADMIN_APPROVAL`, `APPROVED`, `REJECTED`, `SUSPENDED`. A **primeira conta** do sistema vira administrador assim que confirma o e-mail (use `ADMIN_EMAIL` para reservar esse primeiro acesso).
+
+### Configurar o Resend
+1. Crie uma conta em [resend.com](https://resend.com) → **Domains → Add Domain** e cadastre o domínio da igreja (ex.: `igrejavideira.com.br`). Adicione no DNS do domínio os registros que o Resend mostrar e espere ficar **Verified**.
+2. **API Keys → Create API Key** (permissão *Sending access*) e copie a chave (`re_…`).
+3. Na Vercel, em **Settings → Environment Variables**, crie `RESEND_API_KEY`, `EMAIL_FROM` (ex.: `Louvor Videira <nao-responda@igrejavideira.com.br>`) e `APP_URL` (o endereço do site, ex.: `https://louvor-videira.vercel.app`). Depois, faça um **Redeploy**.
+
+> Sem domínio próprio, o Resend só permite enviar do endereço de testes `onboarding@resend.dev` e apenas para o e-mail da sua própria conta no Resend. Para a equipe receber os e-mails, é preciso verificar um domínio.
+
+Sem essas variáveis, o cadastro responde "Envio de e-mails não configurado no servidor. Defina: …" e nada é gravado. O envio nunca é simulado.
 
 ## Banco de dados (Neon + Drizzle)
 
@@ -178,7 +207,14 @@ O arquivo `.env.local` fica fora do Git (veja `.gitignore`). Nunca coloque valor
 ```bash
 npm run db:migrate
 ```
-As migrations ficam em `src/db/migrations/` e são aplicadas **manualmente**, nunca durante o deploy. Ao alterar o schema:
+As migrations ficam em `src/db/migrations/` e são aplicadas **manualmente**, nunca durante o deploy:
+
+| Arquivo | Conteúdo |
+| --- | --- |
+| `0000_initial_schema.sql` | Tabelas iniciais |
+| `0001_email_verification.sql` | Status da conta, confirmação de e-mail, aprovação/recusa e limite de tentativas. Contas que já tinham acesso continuam liberadas |
+
+Se você aplica as migrations colando o SQL no **SQL Editor do Neon**, cole cada arquivo novo, em ordem, uma única vez. Ao alterar o schema:
 ```bash
 npm run db:generate      # gera o SQL da mudança, revise antes de aplicar
 npm run db:migrate
@@ -204,14 +240,15 @@ Também dá para usar o **SQL Editor** do Neon (painel da Vercel → Storage →
 4. Recomendado: em **Settings → Functions → Function Region**, escolha a mesma região do banco (ex.: São Paulo, `gru1`) para respostas mais rápidas.
 5. Opcional: em **Settings → Environment Variables**, defina `ADMIN_EMAIL` com o seu e-mail para que só você possa criar a conta de administrador.
 6. Na sua máquina, com a `DATABASE_URL` de produção no `.env.local`, rode `npm run db:migrate`.
-7. Faça o deploy e abra o site. **Crie a sua conta: a primeira vira administrador.**
+7. Configure o envio de e-mails ([Configurar o Resend](#configurar-o-resend)).
+8. Faça o deploy e abra o site. **Crie a sua conta e confirme o e-mail: a primeira conta vira administrador.**
 
 Depois, a cada mudança no schema: `npm run db:generate` → revise o SQL → `npm run db:migrate` → deploy.
 
 ### Trazer a equipe
-- **Convite:** cadastre o integrante em **Equipe** com o e-mail dele, clique em **Administração → Convidar** e depois em **⋯ → Gerar senha temporária**. Envie a senha por um canal privado; a pessoa entra e troca a senha em **Configurações**.
-- **Cadastro livre:** a pessoa cria conta no site e aparece em **Administração → Aguardando aprovação**. Aprove e defina o nível de acesso.
-- **Esqueceu a senha?** O administrador gera uma senha temporária em **⋯ → Gerar senha temporária** (as sessões antigas da pessoa são encerradas).
+- **Cadastro:** a pessoa cria a conta no site e confirma o e-mail. A solicitação aparece em **Administração → Solicitações de acesso**; aprove e defina o nível de acesso.
+- **Convite:** cadastre o integrante em **Equipe** com o e-mail dele e clique em **Administração → Convidar**. Quando a pessoa criar a conta com esse e-mail e confirmar o endereço, ela já chega com o nível e o vínculo definidos; é só aprovar.
+- **Esqueceu a senha?** O administrador gera uma senha temporária em **⋯ → Gerar senha temporária** (só para quem já confirmou o e-mail; as sessões antigas são encerradas).
 
 ### Variáveis de ambiente
 
@@ -219,6 +256,9 @@ Depois, a cada mudança no schema: `npm run db:generate` → revise o SQL → `n
 | --- | --- | --- | --- |
 | `DATABASE_URL` | Servidor | Sim (produção) | Conexão com o Neon, criada pela integração |
 | `BLOB_READ_WRITE_TOKEN` | Servidor | Para upload | Criada ao conectar o Blob store |
+| `RESEND_API_KEY` | Servidor | Sim (cadastro) | Chave da API do Resend |
+| `EMAIL_FROM` | Servidor | Sim (cadastro) | Remetente com domínio verificado no Resend |
+| `APP_URL` | Servidor | Sim (cadastro) | Endereço do site usado nos links dos e-mails |
 | `ADMIN_EMAIL` | Servidor | Não | Restringe quem cria a primeira conta de administrador |
 | `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD` | Local | Não | Administrador criado pelo seed de desenvolvimento |
 | `VITE_DATA_PROVIDER` | Build | Não | `demo` gera a versão de demonstração sem banco |
@@ -232,4 +272,5 @@ Depois, a cada mudança no schema: `npm run db:generate` → revise o SQL → `n
 `npm run test` cobre:
 - transposição de tons e acordes, leitura de cifras, links do YouTube/Vimeo, datas e cálculo de preparação;
 - integridade dos dados de demonstração;
-- **API contra um PostgreSQL real em memória** (mesmas migrations e seed): login, primeiro administrador, aprovação, permissões no servidor, tentativa de elevar o próprio nível de acesso, validação (400), conflitos (409), 404, CSRF, favoritos pessoais, senha temporária, logout e upload sem Blob configurado.
+- **API contra um PostgreSQL real em memória** (mesmas migrations e seed): login, primeiro administrador, aprovação, permissões no servidor, tentativa de elevar o próprio nível de acesso, validação (400), conflitos (409), 404, CSRF, favoritos pessoais, senha temporária, logout e upload sem Blob configurado;
+- **cadastro e confirmação de e-mail** (`accounts.server.test.ts`): formatos inválidos, descartáveis e domínio sem MX, e-mail já existente, conteúdo do e-mail, link, token expirado e reutilizado, reenvio e limites, login em cada situação, aprovação bloqueada sem confirmação, aprovação, recusa, suspensão, troca de e-mail e segurança dos tokens.

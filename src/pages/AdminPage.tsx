@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { CalendarPlus, Check, ClipboardList, Hourglass, KeyRound, ListPlus, Lock, Mic2, MoreHorizontal, Music, ShieldCheck, ShieldOff, Trash2, UserCheck, UserPlus, Users, X } from 'lucide-react'
+import { CalendarPlus, Check, ClipboardList, KeyRound, ListPlus, Lock, Mic2, MoreHorizontal, Music, ShieldCheck, ShieldOff, Trash2, UserCheck, UserPlus, Users, X } from 'lucide-react'
 import { useAuth } from '@/contexts/auth'
 import { useConfirm } from '@/contexts/confirm'
 import { useToast } from '@/contexts/toast'
@@ -10,6 +10,7 @@ import { useMutation } from '@/hooks/useMutation'
 import { USER_ROLE_LABELS } from '@/lib/constants'
 import { PERMISSION_LABELS, ROLE_PERMISSIONS, type Permission } from '@/lib/permissions'
 import { userService } from '@/services'
+import { AccessRequestsCard } from '@/components/auth/AccessRequestsCard'
 import type { User, UserRole } from '@/types'
 import { Avatar, Badge, Button, Card, CardBody, CardHeader, Dropdown, EmptyState, IconButton, PageHeader, Select, SkeletonList } from '@/components/ui'
 
@@ -27,12 +28,16 @@ export default function AdminPage() {
   const { mode } = useAuth()
   const confirm = useConfirm()
   const createAccess = useMutation((memberId: string) => userService.createForMember(members.find((m) => m.id === memberId)!, 'member'), {
-    success: mode === 'server' ? 'Convite criado. Gere uma senha temporária para a pessoa entrar.' : 'Acesso criado',
+    success: mode === 'server' ? 'Convite criado. Peça para a pessoa criar a conta com este e-mail.' : 'Acesso criado',
     error: 'Não foi possível criar o acesso',
   })
-  const setApproved = useMutation(({ id, approved }: { id: string; approved: boolean }) => userService.setApproved(id, approved), {
-    success: (u) => (u.approved ? `Acesso de ${u.name} liberado` : `Acesso de ${u.name} revogado`),
-    error: 'Não foi possível alterar o acesso',
+  const suspend = useMutation((id: string) => userService.suspend(id), {
+    success: ({ user }) => `Acesso de ${user.name} suspenso`,
+    error: 'Não foi possível suspender o acesso',
+  })
+  const reactivate = useMutation((id: string) => userService.approve(id), {
+    success: ({ user }) => `Acesso de ${user.name} reativado`,
+    error: 'Não foi possível reativar o acesso',
   })
   const linkMember = useMutation(({ id, memberId }: { id: string; memberId: string | null }) => userService.linkMember(id, memberId), {
     success: 'Integrante vinculado',
@@ -104,8 +109,11 @@ export default function AdminPage() {
   }
 
   const membersWithoutAccess = members.filter((m) => !users.some((u) => u.memberId === m.id))
-  const pendingUsers = users.filter((u) => !u.approved && u.registered)
-  const activeUsers = users.filter((u) => u.approved || !u.registered)
+  const REQUEST_ORDER: Record<string, number> = { PENDING_ADMIN_APPROVAL: 0, PENDING_EMAIL_VERIFICATION: 1, REJECTED: 2 }
+  const requests = users
+    .filter((u) => u.registered && u.status in REQUEST_ORDER)
+    .sort((a, b) => REQUEST_ORDER[a.status]! - REQUEST_ORDER[b.status]! || b.createdAt.localeCompare(a.createdAt))
+  const activeUsers = users.filter((u) => !u.registered || u.status === 'APPROVED' || u.status === 'SUSPENDED')
   const shortcuts = [
     { to: '/musicas/nova', label: 'Nova música', icon: <Music /> },
     { to: '/repertorios/novo', label: 'Novo repertório', icon: <ListPlus /> },
@@ -134,37 +142,7 @@ export default function AdminPage() {
 
       <div className="grid gap-6 xl:grid-cols-5">
         <div className="space-y-6 xl:col-span-3">
-          {pendingUsers.length > 0 && (
-            <Card className="border-brand-300 dark:border-brand-500/40">
-              <CardHeader
-                title="Aguardando aprovação"
-                description="Pessoas que criaram conta no site"
-                icon={<Hourglass />}
-                action={<Badge tone="brand">{pendingUsers.length}</Badge>}
-              />
-              <CardBody className="pt-3">
-                <ul className="divide-y divide-line">
-                  {pendingUsers.map((u) => (
-                    <li key={u.id} className="flex flex-wrap items-center gap-3 py-3">
-                      <Avatar name={u.name} size="sm" />
-                      <div className="min-w-0 flex-1 basis-44">
-                        <p className="truncate text-sm font-semibold text-ink">{u.name}</p>
-                        <p className="truncate text-xs text-ink-3">{u.email}</p>
-                      </div>
-                      <div className="flex gap-2">
-                        <Button size="sm" variant="danger-ghost" onClick={() => void onRemove(u)}>
-                          Recusar
-                        </Button>
-                        <Button size="sm" leftIcon={<UserCheck />} onClick={() => void setApproved.mutate({ id: u.id, approved: true })}>
-                          Aprovar
-                        </Button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </CardBody>
-            </Card>
-          )}
+          <AccessRequestsCard requests={requests} onRemove={(u) => void onRemove(u)} />
 
           <Card>
             <CardHeader title="Usuários e permissões" description={`${activeUsers.length} usuários`} />
@@ -186,7 +164,8 @@ export default function AdminPage() {
                           <p className="truncate text-xs text-ink-3">
                             {u.email}
                             {mode === 'server' && !u.registered && ' · convite criado, conta ainda não ativada'}
-                            {!u.approved && ' · acesso revogado'}
+                            {u.status === 'SUSPENDED' && ' · acesso suspenso'}
+                            {u.registered && u.status === 'APPROVED' && !u.emailVerified && ' · aguardando confirmação do novo e-mail'}
                           </p>
                         </div>
                         <div className="flex items-center gap-1">
@@ -206,10 +185,13 @@ export default function AdminPage() {
                                 </IconButton>
                               )}
                               items={[
-                                u.approved
-                                  ? { label: 'Revogar acesso', icon: <ShieldOff />, onSelect: () => void setApproved.mutate({ id: u.id, approved: false }) }
-                                  : { label: 'Liberar acesso', icon: <UserCheck />, onSelect: () => void setApproved.mutate({ id: u.id, approved: true }) },
-                                ...(mode === 'server'
+                                ...(u.status === 'APPROVED' && u.registered
+                                  ? [{ label: 'Suspender acesso', icon: <ShieldOff />, onSelect: () => void suspend.mutate(u.id) }]
+                                  : []),
+                                ...(u.status === 'SUSPENDED'
+                                  ? [{ label: 'Reativar acesso', icon: <UserCheck />, onSelect: () => void reactivate.mutate(u.id) }]
+                                  : []),
+                                ...(mode === 'server' && u.emailVerified
                                   ? [{ label: 'Gerar senha temporária', icon: <KeyRound />, onSelect: () => void onResetPassword(u) }]
                                   : []),
                                 { label: 'Remover acesso', icon: <Trash2 />, onSelect: () => void onRemove(u), danger: true, separatorBefore: true },
@@ -245,7 +227,7 @@ export default function AdminPage() {
                   <p className="text-sm font-semibold text-ink">Integrantes sem acesso</p>
                   <p className="mb-3 text-xs text-ink-3">
                     {mode === 'server'
-                      ? 'Convide pelo e-mail cadastrado na Equipe e gere uma senha temporária em ⋯ para a pessoa entrar. Se ela criar a conta sozinha, aprove o acesso aqui.'
+                      ? 'Convide pelo e-mail cadastrado na Equipe. A pessoa cria a conta com esse e-mail, confirma o endereço e a solicitação aparece acima para aprovação.'
                       : 'Crie um acesso para o integrante.'}
                   </p>
                   <ul className="space-y-2">

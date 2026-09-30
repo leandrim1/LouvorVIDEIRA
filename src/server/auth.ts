@@ -68,7 +68,26 @@ export function temporaryPassword(length = 10): string {
 /* Sessões                                                             */
 /* ------------------------------------------------------------------ */
 
-const sha256 = (value: string) => createHash('sha256').update(value).digest('hex')
+export const sha256 = (value: string) => createHash('sha256').update(value).digest('hex')
+
+/* ------------------------------------------------------------------ */
+/* Token de confirmação do e-mail                                      */
+/* ------------------------------------------------------------------ */
+
+export const VERIFICATION_HOURS = 24
+
+/**
+ * Token aleatório (256 bits) enviado no link. O banco guarda só o SHA-256 dele:
+ * quem lê o banco não consegue montar um link válido.
+ */
+export function createVerificationToken() {
+  const token = randomBytes(32).toString('base64url')
+  return {
+    token,
+    hash: sha256(token),
+    expiresAt: new Date(Date.now() + VERIFICATION_HOURS * 3_600_000),
+  }
+}
 
 export async function createSession(db: Database, userId: string, request: Request): Promise<string> {
   const token = randomBytes(32).toString('base64url')
@@ -99,13 +118,26 @@ export async function getSession(db: Database, request: Request): Promise<Sessio
     .from(sessions)
     .innerJoin(users, eq(users.id, sessions.userId))
     .leftJoin(members, eq(members.id, users.memberId))
-    .where(and(eq(sessions.tokenHash, sha256(token)), gt(sessions.expiresAt, new Date())))
+    // Só contas aprovadas e com e-mail confirmado têm sessão válida (suspensas saem na hora)
+    .where(
+      and(
+        eq(sessions.tokenHash, sha256(token)),
+        gt(sessions.expiresAt, new Date()),
+        eq(users.status, 'APPROVED'),
+        eq(users.emailVerified, true),
+      ),
+    )
     .limit(1)
   return row ?? null
 }
 
 export async function deleteSession(db: Database, sessionId: string) {
   await db.delete(sessions).where(eq(sessions.id, sessionId))
+}
+
+/** Encerra todas as sessões da pessoa (suspensão, recusa, troca de e-mail ou de senha) */
+export async function deleteUserSessions(db: Database, userId: string) {
+  await db.delete(sessions).where(eq(sessions.userId, userId))
 }
 
 const isSecure = (request: Request) =>
@@ -142,12 +174,22 @@ export function requireSession(session: Session | null): Session {
 /** Usuário logado E liberado pelo administrador */
 export function requireApproved(session: Session | null): Session {
   const s = requireSession(session)
-  if (!s.user.approved) throw ApiError.forbidden('Seu acesso ainda não foi liberado pelo administrador.')
+  if (s.user.status !== 'APPROVED' || !s.user.emailVerified) throw ApiError.forbidden('Seu acesso ainda não foi liberado pelo administrador.')
   return s
 }
 
-/** Formato público do usuário (nunca expõe o hash da senha) */
+/** Formato público do usuário: nunca expõe o hash da senha nem o do token de confirmação */
 export function publicUser(user: UserRow) {
-  const { passwordHash, ...rest } = user
-  return { ...rest, registered: passwordHash !== null }
+  const {
+    passwordHash,
+    emailVerificationTokenHash: _tokenHash,
+    emailVerificationExpiresAt: _expiresAt,
+    emailVerificationSentAt: _sentAt,
+    ...rest
+  } = user
+  return {
+    ...rest,
+    registered: passwordHash !== null,
+    approved: user.status === 'APPROVED' && user.emailVerified,
+  }
 }

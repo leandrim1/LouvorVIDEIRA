@@ -1,4 +1,5 @@
 import { createContext, useContext } from 'react'
+import type { PendingVerification } from '@/services/authService'
 import type { User } from '@/types'
 
 export type AuthStatus = 'loading' | 'signed_out' | 'signed_in'
@@ -16,7 +17,8 @@ export interface AuthContextValue {
   /** Nenhum administrador ativo ainda: a primeira conta criada vira administrador */
   setupRequired: boolean
   signIn: (email: string, password: string) => Promise<void>
-  signUp: (name: string, email: string, password: string) => Promise<void>
+  /** Cria a solicitação e envia o e-mail de confirmação (não entra no sistema) */
+  signUp: (name: string, email: string, password: string) => Promise<PendingVerification>
   signOut: () => Promise<void>
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>
   /** Consulta a sessão no servidor (usuário, nível de acesso e aprovação) */

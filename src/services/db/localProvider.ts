@@ -22,6 +22,8 @@ function load(): DatabaseState {
       for (const user of parsed.users ?? []) {
         user.approved ??= true
         user.registered ??= true
+        user.status ??= user.approved ? 'APPROVED' : 'PENDING_ADMIN_APPROVAL'
+        user.emailVerified ??= true
       }
       return parsed as DatabaseState
     }

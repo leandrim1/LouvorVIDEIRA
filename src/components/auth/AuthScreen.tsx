@@ -1,8 +1,10 @@
 import { useState, type FormEvent } from 'react'
-import { ArrowLeft, KeyRound, Lock, LogIn, Mail, User, UserPlus } from 'lucide-react'
+import { ArrowLeft, Hourglass, KeyRound, Lock, LogIn, Mail, MailWarning, User, UserPlus } from 'lucide-react'
 import { authErrorMessage, useAuth } from '@/contexts/auth'
+import { ApiRequestError } from '@/services/apiClient'
 import { Button, Field, Input, SegmentedControl } from '@/components/ui'
 import { AuthLayout } from './AuthLayout'
+import { CheckEmailScreen } from './CheckEmailScreen'
 
 type Mode = 'login' | 'signup' | 'forgot'
 
@@ -18,10 +20,14 @@ export function AuthScreen() {
   const [error, setError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(false)
+  /** Situação da conta informada no login (e-mail não confirmado, aguardando aprovação…) */
+  const [status, setStatus] = useState<{ code: string; message: string } | null>(null)
+  const [pending, setPending] = useState<{ email: string; resendAfter: number; notice?: string } | null>(null)
 
   const switchMode = (next: Mode) => {
     setMode(next)
     setError(null)
+    setStatus(null)
     setFieldErrors({})
   }
 
@@ -38,16 +44,44 @@ export function AuthScreen() {
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     setError(null)
+    setStatus(null)
     if (!validate()) return
     setLoading(true)
     try {
       if (mode === 'login') await signIn(email, password)
-      else await signUp(name, email, password)
+      else {
+        const result = await signUp(name, email, password)
+        setPending({ email: result.email, resendAfter: result.resendAfter })
+      }
     } catch (err) {
-      setError(authErrorMessage(err))
+      const code = err instanceof ApiRequestError ? err.code : ''
+      const details = err instanceof ApiRequestError ? err.details : undefined
+      if (code === 'VERIFICATION_PENDING') {
+        setPending({ email: email.trim().toLowerCase(), resendAfter: 0, notice: authErrorMessage(err) })
+      } else if (['EMAIL_NOT_VERIFIED', 'PENDING_APPROVAL', 'ACCOUNT_REJECTED', 'ACCOUNT_SUSPENDED'].includes(code)) {
+        setStatus({ code, message: authErrorMessage(err) })
+      } else if (details && Object.keys(details).some((k) => ['name', 'email', 'password'].includes(k))) {
+        setFieldErrors(Object.fromEntries(Object.entries(details).map(([k, v]) => [k, v[0] ?? ''])))
+      } else {
+        setError(authErrorMessage(err))
+      }
     } finally {
       setLoading(false)
     }
+  }
+
+  if (pending) {
+    return (
+      <CheckEmailScreen
+        email={pending.email}
+        resendAfter={pending.resendAfter}
+        notice={pending.notice}
+        onBack={() => {
+          setPending(null)
+          switchMode('login')
+        }}
+      />
+    )
   }
 
   const titles: Record<Mode, { title: string; description: string }> = {
@@ -55,8 +89,8 @@ export function AuthScreen() {
     signup: {
       title: 'Criar conta',
       description: setupRequired
-        ? 'A primeira conta criada é a do administrador, com acesso total.'
-        : 'Depois de criar a conta, o administrador libera o seu acesso.',
+        ? 'A primeira conta criada é a do administrador, com acesso total, após a confirmação do e-mail.'
+        : 'Depois de criar a conta, confirme seu e-mail e aguarde a liberação do administrador.',
     },
     forgot: { title: 'Recuperar senha', description: 'A senha é redefinida pelo administrador da equipe.' },
   }
@@ -137,6 +171,28 @@ export function AuthScreen() {
             <p role="alert" className="rounded-xl bg-red-50 px-3 py-2.5 text-sm font-medium text-red-700 dark:bg-red-500/10 dark:text-red-300">
               {error}
             </p>
+          )}
+
+          {status && (
+            <div role="alert" className="flex items-start gap-3 rounded-2xl border border-line bg-surface p-4">
+              {status.code === 'EMAIL_NOT_VERIFIED' ? (
+                <MailWarning className="mt-0.5 size-5 shrink-0 text-amber-600 dark:text-amber-300" aria-hidden />
+              ) : (
+                <Hourglass className="mt-0.5 size-5 shrink-0 text-brand-600 dark:text-brand-300" aria-hidden />
+              )}
+              <div className="min-w-0 space-y-2">
+                <p className="text-sm font-medium text-ink">{status.message}</p>
+                {status.code === 'EMAIL_NOT_VERIFIED' && (
+                  <button
+                    type="button"
+                    onClick={() => setPending({ email: email.trim().toLowerCase(), resendAfter: 0 })}
+                    className="text-xs font-semibold text-brand-600 hover:underline dark:text-brand-300"
+                  >
+                    Reenviar e-mail de confirmação
+                  </button>
+                )}
+              </div>
+            </div>
           )}
 
           <Button

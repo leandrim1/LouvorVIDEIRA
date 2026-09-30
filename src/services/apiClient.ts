@@ -11,6 +11,8 @@ export class ApiRequestError extends DataError {
   readonly status: number
   readonly code: string
   readonly details?: Record<string, string[]>
+  /** Segundos até poder tentar de novo (limite de tentativas) */
+  retryAfter?: number
 
   constructor(status: number, code: string, message: string, details?: Record<string, string[]>) {
     super(message)
@@ -22,7 +24,7 @@ export class ApiRequestError extends DataError {
 }
 
 interface ErrorBody {
-  error?: { code?: string; message?: string; details?: Record<string, string[]> }
+  error?: { code?: string; message?: string; details?: Record<string, string[]>; retryAfter?: number }
 }
 
 /* Sessão expirada: o AuthProvider escuta e volta para a tela de login */
@@ -44,7 +46,9 @@ export function toApiError(status: number, body: ErrorBody | null): ApiRequestEr
   const first = body?.error?.details && Object.values(body.error.details)[0]?.[0]
   if (first && !message.includes(first)) message = `${message} ${first}`
   if (status === 401) notifyUnauthorized()
-  return new ApiRequestError(status, code, message, body?.error?.details)
+  const error = new ApiRequestError(status, code, message, body?.error?.details)
+  error.retryAfter = body?.error?.retryAfter
+  return error
 }
 
 /* Requisições interrompidas porque a página está sendo recarregada ou fechada não são erros */

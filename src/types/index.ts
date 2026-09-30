@@ -16,6 +16,7 @@ type Row<T extends { $inferSelect: object }> = Serialized<T['$inferSelect']>
 /* ------------------------------------------------------------------ */
 
 export type UserRole = (typeof schema.userRole.enumValues)[number]
+export type UserStatus = (typeof schema.userStatus.enumValues)[number]
 export type MemberRole = (typeof schema.memberRole.enumValues)[number]
 export type VoiceType = (typeof schema.voiceType.enumValues)[number]
 export type EventType = (typeof schema.eventType.enumValues)[number]
@@ -30,10 +31,14 @@ export type FileKind = (typeof schema.fileKind.enumValues)[number]
 /* Entidades (linhas das tabelas)                                      */
 /* ------------------------------------------------------------------ */
 
-/** Usuário como a API expõe: sem o hash da senha, com `registered` (conta ativada) */
-export type User = Serialized<Omit<typeof schema.users.$inferSelect, 'passwordHash'>> & {
+/** Usuário como a API expõe: sem hashes de senha e de token, com campos calculados */
+export type User = Serialized<
+  Omit<typeof schema.users.$inferSelect, 'passwordHash' | 'emailVerificationTokenHash' | 'emailVerificationExpiresAt' | 'emailVerificationSentAt'>
+> & {
   /** `false` = convite criado pelo administrador, a pessoa ainda não criou a senha */
   registered: boolean
+  /** Conta liberada: e-mail confirmado e status APPROVED */
+  approved: boolean
 }
 export type Member = Row<typeof schema.members>
 export type Song = Row<typeof schema.songs>

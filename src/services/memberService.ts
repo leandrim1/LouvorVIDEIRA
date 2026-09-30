@@ -48,6 +48,23 @@ export const memberService = {
   },
 }
 
+export interface AccountActionResult {
+  user: User
+  /** O aviso por e-mail foi enviado (aprovação ou recusa) */
+  emailSent: boolean
+}
+
+/** Ações de aprovação: no servidor, rotas próprias com todas as regras; na demonstração, atualização local */
+async function accountAction(id: string, action: 'approve' | 'reject' | 'suspend', body: object, demoPatch: Partial<User>): Promise<AccountActionResult> {
+  if (isServerMode) {
+    const result = await apiFetch<AccountActionResult>(`users/${encodeURIComponent(id)}/${action}`, { method: 'POST', body })
+    emitChange('users')
+    return result
+  }
+  const user = await db.update('users', id, { ...demoPatch, updatedAt: new Date().toISOString() })
+  return { user, emailSent: false }
+}
+
 export const userService = {
   async list(): Promise<User[]> {
     const users = await db.list('users')
@@ -77,6 +94,15 @@ export const userService = {
       name: member.name,
       email: member.email.trim().toLowerCase(),
       role,
+      // No servidor, estes campos são ignorados: o convite nasce aguardando a confirmação do e-mail
+      status: 'APPROVED',
+      emailVerified: true,
+      emailVerifiedAt: now,
+      approvedAt: now,
+      approvedBy: null,
+      rejectedAt: null,
+      rejectedBy: null,
+      rejectionReason: null,
       approved: true,
       registered: false,
       createdAt: now,
@@ -92,14 +118,26 @@ export const userService = {
     return result.temporaryPassword
   },
 
-  /** Libera (ou revoga) o acesso de quem criou conta */
-  async setApproved(id: string, approved: boolean): Promise<User> {
-    const users = await db.list('users')
-    const target = users.find((u) => u.id === id)
-    if (!approved && target?.role === 'admin' && users.filter((u) => u.role === 'admin' && u.approved).length <= 1) {
-      throw new Error('É necessário manter pelo menos um administrador com acesso.')
+  /** Aprova uma solicitação (exige e-mail confirmado) ou reativa uma conta suspensa */
+  async approve(id: string): Promise<AccountActionResult> {
+    return accountAction(id, 'approve', {}, { status: 'APPROVED', approved: true, approvedAt: new Date().toISOString(), rejectedAt: null, rejectionReason: null })
+  },
+
+  /** Recusa uma solicitação pendente; o motivo e o aviso por e-mail são opcionais */
+  async reject(id: string, reason: string, notify: boolean): Promise<AccountActionResult> {
+    return accountAction(id, 'reject', { reason, notify }, { status: 'REJECTED', approved: false, rejectedAt: new Date().toISOString(), rejectionReason: reason || null })
+  },
+
+  /** Suspende uma conta aprovada (a pessoa é desconectada) */
+  async suspend(id: string): Promise<AccountActionResult> {
+    if (!isServerMode) {
+      const users = await db.list('users')
+      const target = users.find((u) => u.id === id)
+      if (target?.role === 'admin' && users.filter((u) => u.role === 'admin' && u.approved).length <= 1) {
+        throw new Error('É necessário manter pelo menos um administrador com acesso.')
+      }
     }
-    return db.update('users', id, { approved, updatedAt: new Date().toISOString() })
+    return accountAction(id, 'suspend', {}, { status: 'SUSPENDED', approved: false })
   },
 
   async linkMember(id: string, memberId: string | null): Promise<User> {

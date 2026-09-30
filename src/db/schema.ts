@@ -21,6 +21,7 @@ import {
   unique,
   uniqueIndex,
   uuid,
+  type AnyPgColumn,
 } from 'drizzle-orm/pg-core'
 
 /* ------------------------------------------------------------------ */
@@ -28,6 +29,17 @@ import {
 /* ------------------------------------------------------------------ */
 
 export const userRole = pgEnum('user_role', ['admin', 'leader', 'member'])
+/**
+ * Ciclo da conta: cadastro → confirmação do e-mail → aprovação do administrador → acesso.
+ * Só contas APPROVED com e-mail verificado entram no sistema.
+ */
+export const userStatus = pgEnum('user_status', [
+  'PENDING_EMAIL_VERIFICATION',
+  'PENDING_ADMIN_APPROVAL',
+  'APPROVED',
+  'REJECTED',
+  'SUSPENDED',
+])
 export const memberRole = pgEnum('member_role', [
   'leader',
   'vocal',
@@ -93,12 +105,36 @@ export const users = pgTable(
     /** Hash scrypt. Nulo = convite criado pelo administrador, conta ainda não ativada */
     passwordHash: text('password_hash'),
     role: userRole('role').notNull().default('member'),
-    approved: boolean('approved').notNull().default(false),
+    status: userStatus('status').notNull().default('PENDING_EMAIL_VERIFICATION'),
+    /** Verdadeiro somente depois que a pessoa abre o link enviado para o endereço */
+    emailVerified: boolean('email_verified').notNull().default(false),
+    emailVerifiedAt: timestamp('email_verified_at', { withTimezone: true }),
+    /** SHA-256 do token do link de confirmação (o token em si só existe no e-mail) */
+    emailVerificationTokenHash: text('email_verification_token_hash').unique(),
+    emailVerificationExpiresAt: timestamp('email_verification_expires_at', { withTimezone: true }),
+    /** Último envio do e-mail de confirmação (intervalo mínimo entre reenvios) */
+    emailVerificationSentAt: timestamp('email_verification_sent_at', { withTimezone: true }),
+    approvedAt: timestamp('approved_at', { withTimezone: true }),
+    approvedBy: uuid('approved_by').references((): AnyPgColumn => users.id, { onDelete: 'set null' }),
+    rejectedAt: timestamp('rejected_at', { withTimezone: true }),
+    rejectedBy: uuid('rejected_by').references((): AnyPgColumn => users.id, { onDelete: 'set null' }),
+    rejectionReason: text('rejection_reason'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [uniqueIndex('users_email_unique').on(sql`lower(${t.email})`), index('users_member_idx').on(t.memberId)],
+  (t) => [
+    uniqueIndex('users_email_unique').on(sql`lower(${t.email})`),
+    index('users_member_idx').on(t.memberId),
+    index('users_status_idx').on(t.status),
+  ],
 )
+
+/** Limite de tentativas (login, cadastro, envio de e-mails): uma janela de contagem por chave */
+export const rateLimits = pgTable('rate_limits', {
+  key: text('key').primaryKey(),
+  count: integer('count').notNull().default(0),
+  windowStart: timestamp('window_start', { withTimezone: true }).notNull().defaultNow(),
+})
 
 export const sessions = pgTable(
   'sessions',
