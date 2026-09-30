@@ -34,6 +34,7 @@ import { notifyAdmins as notifyAdminsAbout } from './notifications.js'
 import { approvalEmail, assertEmailConfigured, rejectionEmail, sendEmail, verificationEmail } from './email.js'
 import { EMAIL_PROBLEM_MESSAGES, checkEmailAddress, isValidEmailFormat } from './emailValidation.js'
 import { ApiError, json, noContent, readJson } from './http.js'
+import { ensureMember } from './members.js'
 import {
   LOGIN_POLICY,
   checkTrustedDevice,
@@ -269,6 +270,7 @@ export async function authRoute(ctx: AccountContext, action: string | undefined)
       if (!user) throw new ApiError(400, 'TOKEN_INVALID', 'Este link de confirmação é inválido ou já foi utilizado.')
 
       if (user.status === 'PENDING_ADMIN_APPROVAL') await notifyAdmins(db, user)
+      if (user.status === 'APPROVED') await ensureMember(db, user)
       return json({ email: user.email, name: user.name, status: user.status })
     }
 
@@ -563,8 +565,9 @@ export async function userAction(ctx: AccountContext, id: string, action: UserAc
         .where(and(eq(users.id, id), eq(users.emailVerified, true), inArray(users.status, ['PENDING_ADMIN_APPROVAL', 'REJECTED', 'SUSPENDED'])))
         .returning()
       if (!user) throw ApiError.conflict('A situação desta conta mudou. Atualize a página.')
+      const member = await ensureMember(db, user)
       const emailSent = target.status === 'SUSPENDED' ? false : await trySend(() => sendEmail(approvalEmail(user.name, user.email)))
-      return json({ user: publicUser(user), emailSent })
+      return json({ user: publicUser(member), emailSent })
     }
 
     case 'reject': {

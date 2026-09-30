@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { Database } from '../../db/index'
-import { users } from '../../db/schema'
+import { members, users } from '../../db/schema'
 import { setEmailTransport } from '../email'
 import { isDisposableEmailDomain, isValidEmailFormat } from '../emailValidation'
 import { NO_MX_DOMAIN, call, lastEmailTo, login, outbox, setupDatabase, signupAndVerify, tokenFrom, userByEmail } from './helpers'
@@ -209,6 +209,9 @@ describe('11–17. Aprovação, recusa e login', () => {
     expect(res.data.emailSent).toBe(true)
     expect(res.data.user).toMatchObject({ status: 'APPROVED', approved: true, approvedBy: adminId })
     expect(res.data.user.approvedAt).toBeTruthy()
+    // Conta aprovada entra na Equipe automaticamente
+    const [linked] = await db.select({ member: members }).from(users).innerJoin(members, eq(members.id, users.memberId)).where(eq(users.id, id))
+    expect(linked!.member).toMatchObject({ email: 'joao@gmail.com', active: true })
     const mail = lastEmailTo('joao@gmail.com')!
     expect(mail.subject).toBe('Seu acesso foi aprovado — Louvor Videira')
     expect(mail.html).toContain('Acessar sistema')
@@ -357,5 +360,27 @@ describe('20. Segurança dos tokens e limites', () => {
         outbox.push(m)
       })
     }
+  })
+})
+
+describe('integrante ligado à conta', () => {
+  it('reaproveita o integrante com o mesmo e-mail e não duplica ao aprovar de novo', async () => {
+    const { ensureMember } = await import('../members')
+    const [existing] = await db.insert(members).values({ name: 'Lucas Teclado', email: 'LUCAS@gmail.com' }).returning()
+    const [user] = await db
+      .insert(users)
+      .values({ name: 'Lucas', email: 'lucas@gmail.com', status: 'APPROVED', emailVerified: true })
+      .returning()
+    const linked = await ensureMember(db, user!)
+    expect(linked.memberId).toBe(existing!.id)
+    const again = await ensureMember(db, linked)
+    expect(again.memberId).toBe(existing!.id)
+    expect(await db.select().from(members).where(eq(members.id, existing!.id))).toHaveLength(1)
+  })
+
+  it('conta pendente não entra na Equipe', async () => {
+    const { ensureMember } = await import('../members')
+    const [user] = await db.insert(users).values({ name: 'Ana', email: 'ana.pendente@gmail.com', status: 'PENDING_ADMIN_APPROVAL' }).returning()
+    expect((await ensureMember(db, user!)).memberId).toBeNull()
   })
 })

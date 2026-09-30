@@ -104,7 +104,7 @@ describe('seed e relacionamentos', () => {
         async (r) => (await call('GET', r, { cookie: admin })).data.length,
       ),
     )
-    expect(counts).toEqual([15, 8, 5, 3, 3, 10])
+    expect(counts).toEqual([15, 9, 5, 3, 3, 10]) // 8 da seed + o administrador (conta aprovada entra na Equipe)
     const events = (await call('GET', 'events', { cookie: admin })).data as { type: string; startTime: string; date: string }[]
     expect(events.filter((e) => e.type !== 'rehearsal')).toHaveLength(5)
     expect(events[0]!.startTime).toMatch(/^\d{2}:\d{2}$/)
@@ -131,7 +131,7 @@ describe('seed e relacionamentos', () => {
     const res = await call('POST', 'batch', { cookie: admin, body: { requests: [{ path: 'songs' }, { path: 'members?active=true' }, { path: 'nada' }] } })
     expect(res.status).toBe(200)
     expect(res.data.map((r: { status: number }) => r.status)).toEqual([200, 200, 404])
-    expect(res.data[1].data).toHaveLength(8)
+    expect(res.data[1].data).toHaveLength(9)
   })
 })
 
