@@ -14,6 +14,7 @@ import { files } from '../db/schema.js'
 import { hasPermission } from '../lib/permissions.js'
 import { USER_ACTIONS, adminDevices, authRoute, userAction, type UserAction } from './accounts.js'
 import { getSession, requireApproved, type Session } from './auth.js'
+import { emailProvider } from './email.js'
 import { deleteFile, listFiles, uploadFile } from './files.js'
 import { ApiError, json, noContent, readJson, toErrorResponse } from './http.js'
 import { RESOURCES, resolveResource, type DbRow, type Resource, type ResourceContext } from './resources.js'
@@ -385,7 +386,8 @@ async function health(ctx: RequestContext) {
   try {
     await ctx.db.execute(sql`select status, email_verified from users limit 0`)
     await ctx.db.execute(sql`select key from rate_limits limit 0`)
-    return json({ status: 'ok', database: 'ok', migrations: 'ok' })
+    // Só o nome do provedor de e-mail em uso (nunca credenciais)
+    return json({ status: 'ok', database: 'ok', migrations: 'ok', email: emailProvider() ?? 'not_configured' })
   } catch {
     return new Response(
       JSON.stringify({ data: { status: 'error', database: 'ok', migrations: 'pending', missing: '0001_email_verification.sql' } }),

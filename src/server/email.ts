@@ -1,8 +1,13 @@
 /**
- * Envio de e-mails transacionais pela API do Resend (https://resend.com).
- * Variáveis (somente no servidor): RESEND_API_KEY, EMAIL_FROM e APP_URL.
- * Sem elas, o envio falha com uma mensagem clara do que configurar; nada é simulado.
+ * Envio de e-mails transacionais. Dois provedores reais (variáveis somente no servidor):
+ *
+ *  - Gmail (SMTP com senha de app): GMAIL_USER e GMAIL_APP_PASSWORD — usado quando preenchidas.
+ *  - Resend (https://resend.com): RESEND_API_KEY e EMAIL_FROM (exige domínio próprio verificado).
+ *
+ * Em ambos, APP_URL define o endereço dos links. Sem configuração, o envio falha com uma
+ * mensagem clara do que configurar; nada é simulado.
  */
+import nodemailer, { type Transporter } from 'nodemailer'
 import { ApiError } from './http.js'
 
 export interface EmailMessage {
@@ -47,10 +52,66 @@ const resendTransport: EmailTransport = async (message) => {
   }
 }
 
-let transport: EmailTransport = resendTransport
+/* Gmail via SMTP (smtp.gmail.com:465, TLS). A conexão é reaproveitada entre envios. */
+let smtp: { key: string; transporter: Transporter } | null = null
+
+function gmailTransporter(): Transporter {
+  const user = process.env.GMAIL_USER!.trim()
+  // O Google mostra a senha de app em blocos ("abcd efgh ijkl mnop"); os espaços não fazem parte dela
+  const pass = process.env.GMAIL_APP_PASSWORD!.replace(/\s+/g, '')
+  const host = process.env.SMTP_HOST?.trim() || 'smtp.gmail.com'
+  const port = Number(process.env.SMTP_PORT || 465)
+  const key = `${host}:${port}:${user}:${pass}`
+  if (smtp?.key !== key) {
+    smtp = {
+      key,
+      transporter: nodemailer.createTransport({
+        host,
+        port,
+        secure: port === 465,
+        auth: { user, pass },
+        connectionTimeout: 10_000,
+        greetingTimeout: 10_000,
+        socketTimeout: 15_000,
+      }),
+    }
+  }
+  return smtp.transporter
+}
+
+const gmailTransport: EmailTransport = async (message) => {
+  try {
+    await gmailTransporter().sendMail({ from: message.from, to: message.to, subject: message.subject, html: message.html, text: message.text })
+  } catch (error) {
+    const detail = error as { code?: string; responseCode?: number; message?: string }
+    // Ex.: EAUTH/535 = senha de app incorreta ou verificação em duas etapas desativada
+    console.error(`[email] Gmail recusou o envio (${detail.code ?? ''} ${detail.responseCode ?? ''}): ${String(detail.message).slice(0, 200)}`)
+    throw sendFailed()
+  }
+}
+
 /** Substitui o transporte (somente testes automatizados capturam as mensagens) */
+let customTransport: EmailTransport | null = null
 export function setEmailTransport(custom: EmailTransport | null) {
-  transport = custom ?? resendTransport
+  customTransport = custom
+}
+
+export type EmailProvider = 'gmail' | 'resend' | 'custom'
+
+/** Provedor em uso: Gmail quando configurado; senão Resend */
+export function emailProvider(): EmailProvider | null {
+  if (customTransport) return 'custom'
+  if (process.env.GMAIL_USER?.trim() && process.env.GMAIL_APP_PASSWORD?.trim()) return 'gmail'
+  if (process.env.RESEND_API_KEY?.trim()) return 'resend'
+  return null
+}
+
+/** Remetente: no Gmail precisa ser a própria conta (o nome exibido pode ser personalizado) */
+function fromAddress(provider: EmailProvider): string {
+  const from = process.env.EMAIL_FROM?.trim() ?? ''
+  if (provider !== 'gmail') return from
+  const user = process.env.GMAIL_USER!.trim()
+  return from.toLowerCase().includes(user.toLowerCase()) ? from : `Louvor Videira <${user}>`
 }
 
 /** Endereço público do site, usado nos links dos e-mails (nunca derivado do cabeçalho Host) */
@@ -63,16 +124,19 @@ export function appUrl(): string | null {
 
 /** Confere a configuração antes de criar registros que dependem do envio */
 export function assertEmailConfigured() {
+  const provider = emailProvider()
   const missing: string[] = []
-  if (transport === resendTransport && !process.env.RESEND_API_KEY) missing.push('RESEND_API_KEY')
-  if (!process.env.EMAIL_FROM) missing.push('EMAIL_FROM')
+  if (!provider) missing.push('GMAIL_USER e GMAIL_APP_PASSWORD (ou RESEND_API_KEY e EMAIL_FROM)')
+  else if (provider !== 'gmail' && !process.env.EMAIL_FROM?.trim()) missing.push('EMAIL_FROM')
   if (!appUrl()) missing.push('APP_URL')
   if (missing.length > 0) throw new EmailNotConfiguredError(missing)
 }
 
 export async function sendEmail(message: EmailMessage) {
   assertEmailConfigured()
-  await transport({ ...message, from: process.env.EMAIL_FROM! })
+  const provider = emailProvider()!
+  const send = provider === 'custom' ? customTransport! : provider === 'gmail' ? gmailTransport : resendTransport
+  await send({ ...message, from: fromAddress(provider) })
 }
 
 /* ------------------------------------------------------------------ */

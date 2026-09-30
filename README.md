@@ -171,13 +171,22 @@ Criar conta → e-mail de confirmação → link confirmado → aguardando aprov
 ```
 
 1. **Validação do endereço** (servidor): formato, bloqueio de e-mails temporários/descartáveis (`src/server/emailValidation.ts`) e checagem dos registros MX do domínio. Isso **não** confirma o e-mail; só evita endereços claramente inválidos.
-2. **Confirmação real:** o sistema envia pelo **Resend** um link `/verify-email?token=…`. O token tem 256 bits, vale **24 horas**, é de **uso único** e o banco guarda só o **hash SHA-256** dele. Um novo envio invalida o link anterior.
+2. **Confirmação real:** o sistema envia pelo **Gmail** ou pelo **Resend** um link `/verify-email?token=…`. O token tem 256 bits, vale **24 horas**, é de **uso único** e o banco guarda só o **hash SHA-256** dele. Um novo envio invalida o link anterior.
 3. **Só depois** da confirmação (`email_verified = true`) a conta passa para `PENDING_ADMIN_APPROVAL` e aparece em **Administração → Solicitações de acesso**, com aviso no sino dos administradores. O botão **Aprovar** fica desabilitado enquanto o e-mail não é confirmado (e o servidor também recusa).
 4. **Aprovar** envia o e-mail "Seu acesso foi aprovado". **Recusar** permite informar o motivo e, opcionalmente, avisar por e-mail. **Suspender** encerra as sessões na hora.
 5. **Login:** senha correta + e-mail confirmado + conta `APPROVED`. Caso contrário, a tela explica a situação (e-mail não confirmado, aguardando aprovação, recusado ou suspenso). A situação só é revelada para quem acertou a senha.
 6. **Troca de e-mail:** antes da aprovação, a própria pessoa corrige o endereço na tela "Verifique seu e-mail" (com a senha). Se o administrador alterar o e-mail de alguém, o novo endereço precisa ser confirmado outra vez.
 
 Status possíveis: `PENDING_EMAIL_VERIFICATION`, `PENDING_ADMIN_APPROVAL`, `APPROVED`, `REJECTED`, `SUSPENDED`. A **primeira conta** do sistema vira administrador assim que confirma o e-mail (use `ADMIN_EMAIL` para reservar esse primeiro acesso).
+
+### Configurar o envio pelo Gmail (sem domínio próprio)
+1. Entre na conta do Google que vai enviar os e-mails (ex.: `adminlouvorvideira@gmail.com`).
+2. Ative a **verificação em duas etapas**: [myaccount.google.com/security](https://myaccount.google.com/security) → *Verificação em duas etapas*.
+3. Crie uma **senha de app**: [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) → nome `Louvor Videira` → **Criar**. Copie os 16 caracteres (os espaços podem ficar).
+4. Na Vercel, em **Settings → Environment Variables**, crie `GMAIL_USER` (o e-mail da conta), `GMAIL_APP_PASSWORD` (a senha de app) e `APP_URL` (ex.: `https://louvorvideira.vercel.app`). Faça um **Redeploy**.
+5. Abra `/api/health`: deve aparecer `"email":"gmail"`.
+
+Os e-mails saem como `Louvor Videira <sua-conta@gmail.com>`. O Gmail permite cerca de 500 envios por dia. Se a senha de app for revogada ou a verificação em duas etapas desativada, os envios param (o log da Vercel mostra `[email] Gmail recusou o envio`). Quando as variáveis do Gmail estão preenchidas, elas têm prioridade sobre o Resend.
 
 ### Configurar o Resend
 1. Crie uma conta em [resend.com](https://resend.com) → **Domains → Add Domain** e cadastre o domínio da igreja (ex.: `igrejavideira.com.br`). Adicione no DNS do domínio os registros que o Resend mostrar e espere ficar **Verified**.
@@ -186,7 +195,7 @@ Status possíveis: `PENDING_EMAIL_VERIFICATION`, `PENDING_ADMIN_APPROVAL`, `APPR
 
 > Sem domínio próprio, o Resend só permite enviar do endereço de testes `onboarding@resend.dev` e apenas para o e-mail da sua própria conta no Resend. Para a equipe receber os e-mails, é preciso verificar um domínio.
 
-Sem essas variáveis, o cadastro responde "Envio de e-mails não configurado no servidor. Defina: …" e nada é gravado. O envio nunca é simulado.
+Sem Gmail nem Resend configurados, o cadastro responde "Envio de e-mails não configurado no servidor. Defina: …" e nada é gravado. O envio nunca é simulado.
 
 ## Login com código por e-mail e dispositivos confiáveis
 
@@ -203,7 +212,7 @@ E-mail + senha → dispositivo confiável? → sim: entra direto
 - **Administração → ⋯ → Dispositivos:** o administrador vê os dispositivos de cada usuário (navegador, sistema, último acesso, criação e situação) e pode revogar. Suspender uma conta ou gerar senha temporária também revoga os dispositivos dela.
 - **Eventos de segurança** (`security_events`): `LOGIN_SUCCESS`, `LOGIN_FAILED`, `OTP_SENT`, `OTP_FAILED`, `OTP_LOCKED`, `OTP_VERIFIED`, `DEVICE_TRUSTED`, `DEVICE_REJECTED`, `DEVICE_REVOKED`, `ALL_DEVICES_REVOKED`, `LOGOUT`, `LOGOUT_ALL`, com IP, navegador e detalhes.
 
-O login usa as mesmas variáveis do Resend (`RESEND_API_KEY`, `EMAIL_FROM`, `APP_URL`). Sem elas, ninguém consegue entrar em um dispositivo novo.
+O login usa o mesmo envio de e-mails (Gmail ou Resend, e `APP_URL`). Sem ele, ninguém consegue entrar em um dispositivo novo.
 
 ## Banco de dados (Neon + Drizzle)
 
@@ -277,9 +286,9 @@ Depois, a cada mudança no schema: `npm run db:generate` → revise o SQL → `n
 | --- | --- | --- | --- |
 | `DATABASE_URL` | Servidor | Sim (produção) | Conexão com o Neon, criada pela integração |
 | `BLOB_READ_WRITE_TOKEN` | Servidor | Para upload | Criada ao conectar o Blob store |
-| `RESEND_API_KEY` | Servidor | Sim (cadastro) | Chave da API do Resend |
-| `EMAIL_FROM` | Servidor | Sim (cadastro) | Remetente com domínio verificado no Resend |
-| `APP_URL` | Servidor | Sim (cadastro) | Endereço do site usado nos links dos e-mails |
+| `GMAIL_USER`, `GMAIL_APP_PASSWORD` | Servidor | Gmail **ou** Resend | Conta do Gmail e senha de app (envio sem domínio próprio) |
+| `RESEND_API_KEY`, `EMAIL_FROM` | Servidor | Gmail **ou** Resend | Chave do Resend e remetente com domínio verificado |
+| `APP_URL` | Servidor | Sim | Endereço do site usado nos links dos e-mails |
 | `ADMIN_EMAIL` | Servidor | Não | Restringe quem cria a primeira conta de administrador |
 | `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD` | Local | Não | Administrador criado pelo seed de desenvolvimento |
 | `VITE_DATA_PROVIDER` | Build | Não | `demo` gera a versão de demonstração sem banco |

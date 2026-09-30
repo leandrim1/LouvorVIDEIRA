@@ -8,6 +8,10 @@ import { defineConfig, loadEnv, type Plugin, type ViteDevServer } from 'vite'
 const SERVER_ENV = [
   'DATABASE_URL',
   'BLOB_READ_WRITE_TOKEN',
+  'GMAIL_USER',
+  'GMAIL_APP_PASSWORD',
+  'SMTP_HOST',
+  'SMTP_PORT',
   'RESEND_API_KEY',
   'EMAIL_FROM',
   'APP_URL',
